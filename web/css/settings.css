@@ -6,3 +6,7 @@
 .panel-close { position: absolute; top: 1rem; right: 1rem; border: 0; background: none; color: #fff; font-size: 1.8rem; }
 .offset-controls { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: 2rem; }
 .offset-controls span { flex-basis: 100%; }
+.level-meter { position: relative; height: 10px; margin: 1.5rem 0; border-radius: 999px; background: linear-gradient(90deg, #39404d, #e8e9ed); }
+.level-meter::after { content: ""; display: block; width: var(--level, 0%); height: 100%; border-radius: inherit; background: #fff; opacity: .75; }
+#threshold-marker { position: absolute; z-index: 1; top: -5px; left: 40%; width: 2px; height: 20px; background: #ef6b73; }
+.settings-error { margin-top: 1rem; color: #ff9ca3; }

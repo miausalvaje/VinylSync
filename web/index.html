@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="/css/lyrics.css">
     <link rel="stylesheet" href="/css/settings.css">
     <link rel="stylesheet" href="/css/modal.css">
-    <title>vinyl-lyrics</title>
+    <title>VinylSync</title>
   </head>
   <body>
     <main id="app">
@@ -25,6 +25,7 @@
           <img src="/favicon.svg" alt="" width="72" height="72">
           <p>Listening…</p>
           <small id="state-label">Waiting for audio</small>
+          <small id="identifying-indicator" hidden>Identifying track…</small>
         </div>
       </section>
 
@@ -34,7 +35,11 @@
           <div class="track-column">
             <img id="track-artwork" class="track-artwork" src="/favicon.svg" alt="Album artwork">
             <p id="track-artist" class="track-artist">Waiting for track</p>
-            <h1 id="track-title">vinyl-lyrics</h1>
+            <h1 id="track-title">VinylSync</h1>
+            <div class="track-actions">
+              <span id="track-lock" hidden aria-label="Track locked">🔒</span>
+              <button id="unlock-track" class="secondary-button" type="button" hidden>Unlock</button>
+            </div>
             <button id="manual-search-button" class="secondary-button" type="button">Correct track</button>
           </div>
           <div class="lyrics-column">
@@ -55,6 +60,10 @@
         <input id="gain-slider" type="range" min="-30" max="30" step="0.5" value="0">
         <label for="threshold-slider">Silence threshold <output id="threshold-value">-48 dBFS</output></label>
         <input id="threshold-slider" type="range" min="-90" max="-5" step="1" value="-48">
+        <div id="level-meter" class="level-meter" aria-label="Input level">
+          <span id="threshold-marker"></span>
+        </div>
+        <div id="settings-error" class="settings-error" hidden></div>
         <label for="font-slider">Font size <output id="font-value">1×</output></label>
         <input id="font-slider" type="range" min="0.5" max="3" step="0.1" value="1">
         <div class="offset-controls">

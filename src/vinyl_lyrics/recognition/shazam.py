@@ -87,12 +87,30 @@ class ShazamRecognizer(BaseRecognizer):
             ),
             offset_seconds=coerce_float(
                 payload.get("offset_seconds")
-                or payload.get("offset")
-                or payload.get("sample_offset")
+                if payload.get("offset_seconds") is not None
+                else payload.get("offset")
+                if payload.get("offset") is not None
+                else payload.get("sample_offset")
             ),
         )
 
-    async def recognize(self, wav_bytes: bytes) -> Track | None:
+    @staticmethod
+    def _extract_offset(payload: Any) -> float | None:
+        """Extract Shazam's match offset and time skew in seconds."""
+        if not isinstance(payload, dict):
+            return None
+        matches = payload.get("matches")
+        if not isinstance(matches, list) or not matches:
+            return None
+        match = matches[0]
+        if not isinstance(match, dict):
+            return None
+        offset = coerce_float(match.get("offset"))
+        timeskew = coerce_float(match.get("timeskew"), 0.0) or 0.0
+        return offset + timeskew if offset is not None else timeskew
+
+    async def recognize_raw(self, wav_bytes: bytes) -> Any:
+        """Return the provider response for diagnostics and normalization."""
         if ShazamClient is None:
             raise RuntimeError(
                 "shazamio is not installed; install project dependencies to enable recognition."
@@ -113,12 +131,22 @@ class ShazamRecognizer(BaseRecognizer):
 
         if result is None:
             return None
+        self.last_raw_result = result
+        return result
+
+    async def recognize(self, wav_bytes: bytes) -> Track | None:
+        result = await self.recognize_raw(wav_bytes)
+        if result is None:
+            return None
 
         payload = self._extract_track(result)
         if payload is None:
             return None
 
         if isinstance(payload, dict):
+            offset = self._extract_offset(result)
+            if offset is not None:
+                payload = {**payload, "offset_seconds": offset}
             track = self._build_track(payload)
             if track is not None:
                 return track

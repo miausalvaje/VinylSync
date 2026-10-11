@@ -1,3 +1,3 @@
-"""vinyl-lyrics package."""
+"""VinylSync package."""
 
 __version__ = "0.1.0"

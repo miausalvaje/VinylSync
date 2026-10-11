@@ -25,7 +25,7 @@ class SettingsStore:
     """Read and write settings.json in the platform user config directory."""
 
     def __init__(self, path: str | Path | None = None) -> None:
-        self.path = Path(path) if path else Path(user_config_dir("vinyl-lyrics")) / "settings.json"
+        self.path = Path(path) if path else Path(user_config_dir("VinylSync")) / "settings.json"
 
     def load(self, defaults: UserSettings | None = None) -> UserSettings:
         result = defaults or UserSettings()

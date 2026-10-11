@@ -23,12 +23,6 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.get("/api/devices")
-async def devices() -> list[dict[str, Any]]:
-    """List available audio sources."""
-    return list_audio_sources()
-
-
 @router.get("/api/sources")
 async def sources() -> list[dict[str, Any]]:
     """List available input and loopback sources."""
@@ -53,6 +47,23 @@ async def update_settings(request: Request) -> dict[str, Any]:
     """Validate and apply user settings immediately."""
     try:
         settings = UserSettings.model_validate(await request.json())
+        result = await request.app.state.runtime.apply_settings(settings)
+        return result.model_dump()
+    except ValidationError as error:
+        raise HTTPException(status_code=422, detail=error.errors()) from error
+    except (OSError, RuntimeError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.patch("/api/settings")
+async def patch_settings(request: Request) -> dict[str, Any]:
+    """Merge, validate, and apply a partial settings update."""
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=422, detail="Settings payload must be an object.")
+        current = request.app.state.runtime.settings.model_dump()
+        settings = UserSettings.model_validate({**current, **payload})
         result = await request.app.state.runtime.apply_settings(settings)
         return result.model_dump()
     except ValidationError as error:

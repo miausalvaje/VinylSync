@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-import sounddevice
 
 warnings.filterwarnings(
     "ignore",
@@ -51,10 +50,13 @@ class SoundDeviceSource(AudioSource):
     """Input-device source backed by sounddevice.InputStream."""
 
     def __init__(self, info: AudioSourceInfo, sample_rate: int, channels: int) -> None:
+        import sounddevice
+
         self.info = info
         self.sample_rate = sample_rate
         self.channels = channels
-        self._stream: sounddevice.InputStream | None = None
+        self._sounddevice = sounddevice
+        self._stream: Any = None
         self._callback: AudioCallback | None = None
         self._lock = threading.Lock()
 
@@ -66,7 +68,7 @@ class SoundDeviceSource(AudioSource):
                 self._stream = None
             self._callback = None
             self._callback = callback
-            self._stream = sounddevice.InputStream(
+            self._stream = self._sounddevice.InputStream(
                 device=int(self.info.source_id.removeprefix("input:")),
                 samplerate=self.sample_rate,
                 channels=self.channels,

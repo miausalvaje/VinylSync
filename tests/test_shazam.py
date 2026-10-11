@@ -3,7 +3,7 @@ from vinyl_lyrics.recognition.shazam import ShazamRecognizer
 
 def test_extracts_shazam_track_from_top_level_response() -> None:
     payload = {
-        "matches": [{"id": "123"}],
+        "matches": [{"id": "123", "offset": 42.5, "timeskew": 0.25}],
         "track": {
             "title": "Example Song",
             "subtitle": "Example Artist",
@@ -20,3 +20,13 @@ def test_extracts_shazam_track_from_top_level_response() -> None:
     assert track.title == "Example Song"
     assert track.artist == "Example Artist"
     assert track.cover_url == "https://example.test/cover.jpg"
+    assert ShazamRecognizer._extract_offset(payload) == 42.75
+
+
+def test_builds_track_with_zero_offset_without_falling_back() -> None:
+    track = ShazamRecognizer._build_track(
+        {"title": "Song", "artist": "Artist", "offset_seconds": 0.0}
+    )
+
+    assert track is not None
+    assert track.offset_seconds == 0.0

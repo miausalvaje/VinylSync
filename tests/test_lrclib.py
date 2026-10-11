@@ -71,3 +71,21 @@ async def test_lrclib_falls_back_to_search_when_get_empty():
     assert result is not None
     assert result.synced is False
     assert result.text == "plain lyric"
+
+
+@pytest.mark.asyncio
+async def test_lrclib_accepts_alternative_key_names_and_plain_lyrics():
+    payload = {
+        "name": "My Song",
+        "artist": "Artist",
+        "plainLyrics": "plain lyric",
+        "duration": 121,
+    }
+
+    with patch("vinyl_lyrics.lyrics.lrclib.httpx.AsyncClient", return_value=DummyClient(payload)):
+        client = LRCLIBClient(base_url="https://example.test/api")
+        result = await client.get_lyrics("Artist", "My Song", duration=120.0)
+
+    assert result is not None
+    assert result.synced is False
+    assert result.text == "plain lyric"

@@ -16,6 +16,7 @@ class TrackState:
     duration: float | None = None
     cover_url: str | None = None
     offset_seconds: float = 0.0
+    manual_offset_seconds: float = 0.0
     started_at_monotonic: float = field(default_factory=time.monotonic)
 
     @property
@@ -25,7 +26,7 @@ class TrackState:
     def elapsed_seconds(self, now: float | None = None) -> float:
         """Return elapsed playback time since the song started."""
         timestamp = time.monotonic() if now is None else now
-        return max(0.0, timestamp - self.started_at_monotonic)
+        return max(0.0, timestamp - self.started_at_monotonic + self.manual_offset_seconds)
 
     def sync_offset(self, reference_now: float | None = None) -> None:
         """Adjust the start timestamp so that the current offset is preserved."""
@@ -49,6 +50,7 @@ class PlayerState:
         duration: float | None = None,
         cover_url: str | None = None,
         offset_seconds: float = 0.0,
+        manual_offset_seconds: float = 0.0,
     ) -> TrackState:
         """Set the current track and initialize its start time."""
         now = time.monotonic()
@@ -59,11 +61,17 @@ class PlayerState:
             duration=duration,
             cover_url=cover_url,
             offset_seconds=offset_seconds,
+            manual_offset_seconds=manual_offset_seconds,
             started_at_monotonic=now - offset_seconds,
         )
         self.current_track = track
         self.last_recheck_at = now
         return track
+
+    def set_manual_offset(self, offset_seconds: float) -> None:
+        """Apply a live manual lyric offset without changing capture position."""
+        if self.current_track is not None:
+            self.current_track.manual_offset_seconds = offset_seconds
 
     def elapsed_seconds(self, now: float | None = None) -> float:
         """Return the elapsed playback time for the current track."""
@@ -84,16 +92,15 @@ class PlayerState:
         if self.current_track is None:
             return 0.0
 
-        current_offset = self.current_track.offset_seconds
+        timestamp = time.monotonic() if now is None else now
+        current_offset = timestamp - self.current_track.started_at_monotonic
         delta = abs(detected_offset - current_offset)
         if delta > 1.5:
             self.current_track.offset_seconds = detected_offset
-            self.current_track.started_at_monotonic = (
-                time.monotonic() if now is None else now
-            ) - detected_offset
-            self.last_recheck_at = time.monotonic() if now is None else now
+            self.current_track.started_at_monotonic = timestamp - detected_offset
+            self.last_recheck_at = timestamp
             return detected_offset
-        return current_offset
+        return self.current_track.offset_seconds
 
     def reset_recheck_timer(self, now: float | None = None) -> None:
         """Reset the timer used for periodic re-identification."""

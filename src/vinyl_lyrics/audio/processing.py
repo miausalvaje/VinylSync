@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import threading
-from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
@@ -20,24 +19,57 @@ class AudioMetrics:
     bands: tuple[float, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class SilenceState:
+    """Immutable result of a silence detector update."""
+
+    active: bool
+    became_active: bool
+    became_silent: bool
+    silent_for: float
+
+
 class CircularAudioBuffer:
     """Thread-safe circular mono float32 buffer."""
 
     def __init__(self, sample_rate: int, seconds: float = 15.0) -> None:
         self.sample_rate = sample_rate
         self.max_samples = max(1, int(sample_rate * seconds))
-        self._samples: deque[float] = deque(maxlen=self.max_samples)
+        self._samples = np.zeros(self.max_samples, dtype=np.float32)
+        self._write_index = 0
+        self._size = 0
         self._lock = threading.Lock()
 
     def append(self, samples: np.ndarray) -> None:
+        values = np.asarray(samples, dtype=np.float32).reshape(-1)
+        if values.size == 0:
+            return
+        if values.size > self.max_samples:
+            values = values[-self.max_samples :]
         with self._lock:
-            self._samples.extend(np.asarray(samples, dtype=np.float32).tolist())
+            end = self._write_index + values.size
+            if end <= self.max_samples:
+                self._samples[self._write_index : end] = values
+            else:
+                first = self.max_samples - self._write_index
+                self._samples[self._write_index :] = values[:first]
+                self._samples[: end % self.max_samples] = values[first:]
+            self._write_index = end % self.max_samples
+            self._size = min(self.max_samples, self._size + values.size)
 
     def latest(self, seconds: float) -> np.ndarray:
         count = max(1, int(seconds * self.sample_rate))
+        count = min(count, self.max_samples)
         with self._lock:
-            values = list(self._samples)[-count:]
-        return np.asarray(values, dtype=np.float32)
+            count = min(count, self._size)
+            start = (self._write_index - count) % self.max_samples
+            if count == 0:
+                return np.empty(0, dtype=np.float32)
+            if start < self._write_index or self._size < self.max_samples:
+                return self._samples[start : start + count].copy()
+            return np.concatenate(
+                (self._samples[start:], self._samples[: self._write_index])
+            ).astype(np.float32, copy=False)
 
 
 class SilenceDetector:
@@ -58,14 +90,16 @@ class SilenceDetector:
         self._above_for = 0.0
         self._below_for = 0.0
 
-    def update(self, dbfs: float, elapsed_seconds: float) -> bool:
-        """Update detector state and return whether signal is active."""
+    def update(self, dbfs: float, elapsed_seconds: float) -> SilenceState:
+        """Update detector state and return signal transitions."""
+        became_active = False
+        became_silent = False
         if self.active:
             if dbfs <= self.exit_dbfs:
                 self._below_for += elapsed_seconds
                 if self._below_for >= self.min_silence_seconds:
                     self.active = False
-                    self._below_for = 0.0
+                    became_silent = True
             else:
                 self._below_for = 0.0
         elif dbfs >= self.enter_dbfs:
@@ -73,9 +107,12 @@ class SilenceDetector:
             if self._above_for >= self.min_signal_seconds:
                 self.active = True
                 self._above_for = 0.0
+                self._below_for = 0.0
+                became_active = True
         else:
             self._above_for = 0.0
-        return self.active
+            self._below_for += elapsed_seconds
+        return SilenceState(self.active, became_active, became_silent, self._below_for)
 
 
 class SpectrumAnalyzer:
@@ -86,30 +123,50 @@ class SpectrumAnalyzer:
         self.band_count = band_count
         self._smoothed = np.zeros(band_count, dtype=np.float32)
         self._edges = np.geomspace(40.0, 16000.0, band_count + 1)
+        self._fft_size = 2048
+        frequencies = np.fft.rfftfreq(self._fft_size, 1.0 / self.sample_rate)
+        self._band_indices = [
+            np.flatnonzero(
+                (frequencies >= self._edges[index]) & (frequencies < self._edges[index + 1])
+            )
+            for index in range(self.band_count)
+        ]
 
     def analyze(self, samples: np.ndarray, gain_db: float = 0.0) -> AudioMetrics:
+        """Analyze a short audio window for spectrum and level."""
         if samples.size == 0:
             return AudioMetrics(0.0, 0.0, -120.0, tuple(self._smoothed.tolist()))
         gain = 10.0 ** (gain_db / 20.0)
-        window = np.hanning(samples.size)
         amplified = np.asarray(samples, dtype=np.float32) * gain
-        rms = float(np.sqrt(np.mean(np.square(amplified))))
-        peak = float(np.max(np.abs(amplified)))
+        level_window = amplified[-max(1, int(self.sample_rate * 0.25)) :]
+        rms = float(np.sqrt(np.mean(np.square(level_window))))
+        peak = float(np.max(np.abs(level_window)))
         dbfs = 20.0 * math.log10(max(rms, 1e-6))
-        spectrum = np.abs(np.fft.rfft(amplified * window))
-        frequencies = np.fft.rfftfreq(amplified.size, 1.0 / self.sample_rate)
+        fft_samples = amplified[-self._fft_size :]
+        if fft_samples.size < self._fft_size:
+            fft_samples = np.pad(fft_samples, (self._fft_size - fft_samples.size, 0))
+        spectrum = np.abs(np.fft.rfft(fft_samples * np.hanning(self._fft_size)))
         values = np.zeros(self.band_count, dtype=np.float32)
-        for index in range(self.band_count):
-            selected = (frequencies >= self._edges[index]) & (frequencies < self._edges[index + 1])
-            if np.any(selected):
-                values[index] = float(np.max(spectrum[selected]))
-        maximum = float(np.max(values))
-        if maximum > 0:
-            values /= maximum
+        for index, indices in enumerate(self._band_indices):
+            if indices.size:
+                band_power = float(np.max(spectrum[indices]))
+                band_db = 20.0 * math.log10(max(band_power / self._fft_size, 1e-6))
+                values[index] = np.clip((band_db + 80.0) / 80.0, 0.0, 1.0)
         attack = values > self._smoothed
         self._smoothed = np.where(
             attack,
             self._smoothed + (values - self._smoothed) * 0.65,
             self._smoothed + (values - self._smoothed) * 0.12,
         )
+        return AudioMetrics(rms, peak, dbfs, tuple(self._smoothed.tolist()))
+
+    def analyze_level(self, samples: np.ndarray, gain_db: float = 0.0) -> AudioMetrics:
+        """Calculate RMS, peak, and dBFS without updating spectrum smoothing."""
+        if samples.size == 0:
+            return AudioMetrics(0.0, 0.0, -120.0, tuple(self._smoothed.tolist()))
+        gain = 10.0 ** (gain_db / 20.0)
+        amplified = np.asarray(samples, dtype=np.float32) * gain
+        rms = float(np.sqrt(np.mean(np.square(amplified))))
+        peak = float(np.max(np.abs(amplified)))
+        dbfs = 20.0 * math.log10(max(rms, 1e-6))
         return AudioMetrics(rms, peak, dbfs, tuple(self._smoothed.tolist()))

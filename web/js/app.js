@@ -9,6 +9,7 @@ import { setupManualSearch } from "./manual-search.js";
 const visualizerView = document.querySelector("#visualizer-view");
 const lyricsView = document.querySelector("#lyrics-view");
 const stateLabel = document.querySelector("#state-label");
+const identifying = document.querySelector("#identifying-indicator");
 let forcedView = false;
 
 function setView(name, manual = false) {
@@ -23,9 +24,15 @@ function setView(name, manual = false) {
 stateStore.onState((payload) => {
   const state = payload.state || "idle";
   stateLabel.textContent = state === "playing" ? "Track identified" : state;
+  identifying.hidden = state !== "identifying";
+  if (state === "no_source") stateLabel.textContent = "No audio source available";
+  if (state === "error") stateLabel.textContent = payload.message || "Server error";
   const track = payload.track;
   document.querySelector("#track-title").textContent = track?.title || "Waiting for track";
   document.querySelector("#track-artist").textContent = track?.artist || "Waiting for track";
+  const locked = Boolean(track?.locked);
+  document.querySelector("#track-lock").hidden = !locked;
+  document.querySelector("#unlock-track").hidden = !locked;
   if (state === "playing") setView("lyrics");
   if (state === "idle" || state === "listening") setView("visualizer");
 });
@@ -37,14 +44,33 @@ setupBackground(stateStore);
 setupFullscreen();
 setupSettings(stateStore);
 setupManualSearch(stateStore);
+document.querySelector("#unlock-track").addEventListener("click", async () => {
+  await fetch("/api/track/unlock", { method: "POST" });
+});
+
+let inactivityTimer;
+function resetInactivity() {
+  document.body.classList.remove("ui-idle");
+  clearTimeout(inactivityTimer);
+  inactivityTimer = setTimeout(() => document.body.classList.add("ui-idle"), 3000);
+}
+["mousemove", "keydown", "touchstart"].forEach((eventName) => {
+  document.addEventListener(eventName, resetInactivity, { passive: true });
+});
+resetInactivity();
 
 document.addEventListener("keydown", (event) => {
   if (event.target.matches("input, select, textarea")) return;
   if (event.key.toLowerCase() === "v") setView(lyricsView.classList.contains("view--active") ? "visualizer" : "lyrics", true);
   if (event.key.toLowerCase() === "s") document.querySelector("#settings-panel").classList.add("side-panel--open");
+  if (event.key.toLowerCase() === "m") document.querySelector("#manual-search-button").click();
+  if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+    document.querySelector(event.key === "ArrowLeft" ? "#offset-down" : "#offset-up").click();
+  }
   if (event.key === "Escape") {
     forcedView = false;
     setView("visualizer");
     document.querySelector("#settings-panel").classList.remove("side-panel--open");
+    document.querySelector("#search-dialog").close();
   }
 });

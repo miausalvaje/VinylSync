@@ -1,24 +1,29 @@
-# Audio input settings.
+# Default application settings for VinylSync.
 audio:
-  # Stable source id such as input:0 or loopback:3. Null selects the default.
+  # Stable source ID, such as input:0 or loopback:3. Null selects the default source.
   source_id: null
-  # Capture sample rate in Hz.
+  # Capture sample rate for the active source.
   sample_rate: 44100
-  # Circular buffer duration in seconds.
+  # Number of seconds retained in the circular buffer.
   buffer_seconds: 15
-  # Gain applied before spectrum and silence analysis.
+  # Gain applied before spectrum analysis and silence detection.
   gain_db: 0
+  # Default system noise threshold for recording devices.
+  silence_threshold_db: -40
 
-# Recognition settings.
 recognition:
   # Available values: shazam, acrcloud, audd.
   provider: shazam
-  # Re-identify the current track after this many seconds.
+  # Re-identify the active song after this many seconds.
   interval_seconds: 45
-  # Signal must remain above this duration before recognition starts.
+  # Minimum sustained signal before a recognition attempt is triggered.
   min_signal_seconds: 1.0
-  # Silence duration that separates vinyl tracks.
+  # Silence duration required to treat a track boundary or gap as a new section.
   track_gap_seconds: 1.5
+  # Silence duration after which the player returns to the visualizer.
+  idle_timeout_seconds: 20
+  # Minimum new audio sample length before a recognition attempt can restart after silence.
+  min_sample_seconds: 5
   shazam:
     enabled: true
   acrcloud:
@@ -30,16 +35,21 @@ recognition:
     enabled: false
     api_token: null
 
-# Lyrics and cache settings.
 lyrics:
   # LRCLIB API base URL.
   lrclib_base_url: https://lrclib.net/api
-  # Identifying HTTP User-Agent sent to LRCLIB.
-  user_agent: vinyl-lyrics/0.1.0
+  # User-Agent sent to LRCLIB.
+  user_agent: VinylSync/0.1.0
   # Local SQLite cache path.
   cache_path: data/lyrics.sqlite3
 
-# Local web server settings.
 server:
   host: 127.0.0.1
   port: 8000
+  # Extra hostnames permitted when exposing the app on a local network.
+  allowed_hosts: []
+
+# UI defaults that are persisted in settings.json and override config.yaml at runtime.
+ui:
+  font_size: 1.0
+  manual_offset_seconds: 0.0

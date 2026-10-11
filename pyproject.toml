@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vinyl-lyrics"
+name = "vinylsync"
 version = "0.1.0"
 description = "A local synchronized lyrics display for turntable audio"
 readme = "README.md"
@@ -44,12 +44,12 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/miausalvaje/vinyl-lyrics"
-Repository = "https://github.com/miausalvaje/vinyl-lyrics"
-Issues = "https://github.com/miausalvaje/vinyl-lyrics/issues"
+Homepage = "https://github.com/miausalvaje/VinylSync"
+Repository = "https://github.com/miausalvaje/VinylSync"
+Issues = "https://github.com/miausalvaje/VinylSync/issues"
 
 [project.scripts]
-vinyl-lyrics = "vinyl_lyrics.main:main"
+vinylsync = "vinyl_lyrics.main:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

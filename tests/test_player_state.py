@@ -22,3 +22,10 @@ def test_player_state_rebases_when_offset_moves_too_far():
     assert player.current_track is not None
     assert player.current_track.offset_seconds == 13.0
     assert player.current_track.started_at_monotonic == 100.0 - 13.0
+
+
+def test_manual_offset_is_added_to_elapsed_time():
+    player = PlayerState()
+    track = player.set_track("Song", "Artist", offset_seconds=10.0, manual_offset_seconds=0.5)
+
+    assert track.elapsed_seconds(track.started_at_monotonic) == 0.5

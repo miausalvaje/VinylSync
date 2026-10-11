@@ -25,7 +25,7 @@ class LRCLIBClient:
     """Asynchronous LRCLIB client."""
 
     def __init__(
-        self, base_url: str = "https://lrclib.net", user_agent: str = "vinyl-lyrics/0.1.0"
+        self, base_url: str = "https://lrclib.net", user_agent: str = "VinylSync/0.1.0"
     ) -> None:
         self.base_url = base_url.rstrip("/")
         if self.base_url.endswith("/api"):
@@ -46,34 +46,51 @@ class LRCLIBClient:
             return None
 
     @staticmethod
+    def _candidate_text(candidate: dict[str, Any]) -> str:
+        text = (
+            candidate.get("syncedLyrics")
+            or candidate.get("plainLyrics")
+            or candidate.get("lyrics")
+            or candidate.get("text")
+            or candidate.get("lyric")
+        )
+        return LRCLIBClient._normalize(text) if text is not None else ""
+
+    @staticmethod
     def _match_score(
         candidate: dict[str, Any], title: str, artist: str, duration: float | None
     ) -> float:
         score = 0.0
         candidate_title = LRCLIBClient._normalize(
-            candidate.get("trackName") or candidate.get("name") or candidate.get("title")
+            candidate.get("trackName")
+            or candidate.get("track_name")
+            or candidate.get("name")
+            or candidate.get("title")
         )
         candidate_artist = LRCLIBClient._normalize(
-            candidate.get("artistName") or candidate.get("artist") or candidate.get("artist_name")
+            candidate.get("artistName")
+            or candidate.get("artist_name")
+            or candidate.get("artist")
         )
         candidate_duration = LRCLIBClient._normalize_duration(
             candidate.get("duration") or candidate.get("duration_ms")
         )
 
         if candidate_title and title:
-            if candidate_title.lower() == title.lower():
+            if candidate_title.casefold() == title.casefold():
                 score += 4.0
             elif (
-                title.lower() in candidate_title.lower() or candidate_title.lower() in title.lower()
+                title.casefold() in candidate_title.casefold()
+                or candidate_title.casefold() in title.casefold()
             ):
                 score += 2.0
 
         if candidate_artist and artist:
-            if candidate_artist.lower() == artist.lower():
+            if candidate_artist.casefold() == artist.casefold():
                 score += 4.0
             elif (
-                artist.lower() in candidate_artist.lower()
-                or candidate_artist.lower() in artist.lower()
+                artist.casefold() in candidate_artist.casefold()
+                or candidate_artist.casefold() in artist.casefold()
             ):
                 score += 2.0
 
@@ -83,6 +100,9 @@ class LRCLIBClient:
                 score += 3.0
             elif delta <= 10.0:
                 score += 1.0
+
+        if LRCLIBClient._candidate_text(candidate):
+            score += 1.5
 
         return score
 
@@ -114,31 +134,50 @@ class LRCLIBClient:
             params["duration"] = int(round(float(duration)))
 
         match = await self._request_json("/api/get", params)
-        if match and isinstance(match, dict):
+        if isinstance(match, dict):
             result = self._normalize_lyrics_result(
                 match, artist_name, track_name, album_name, duration
             )
             if result is not None:
                 return result
+        elif isinstance(match, list):
+            for candidate in match:
+                if not isinstance(candidate, dict):
+                    continue
+                result = self._normalize_lyrics_result(
+                    candidate, artist_name, track_name, album_name, duration
+                )
+                if result is not None:
+                    return result
 
-        search_results = await self._request_json(
-            "/api/search", {"track_name": track_name, "artist_name": artist_name}
-        )
-        candidates = search_results if isinstance(search_results, list) else []
-        if not candidates:
-            return None
+        search_params = [
+            {"track_name": track_name, "artist_name": artist_name},
+            {"q": f"{artist_name} {track_name}".strip()},
+        ]
+        for search_params_item in search_params:
+            try:
+                search_results = await self._request_json("/api/search", search_params_item)
+            except httpx.HTTPStatusError:
+                continue
+            candidates = search_results if isinstance(search_results, list) else []
+            if not candidates:
+                continue
 
-        best_candidate = max(
-            candidates,
-            key=lambda item: self._match_score(item, track_name, artist_name, duration),
-            default=None,
-        )
-        if best_candidate is None:
-            return None
+            best_candidate = max(
+                candidates,
+                key=lambda item: self._match_score(item, track_name, artist_name, duration),
+                default=None,
+            )
+            if best_candidate is None:
+                continue
 
-        return self._normalize_lyrics_result(
-            best_candidate, artist_name, track_name, album_name, duration
-        )
+            normalized = self._normalize_lyrics_result(
+                best_candidate, artist_name, track_name, album_name, duration
+            )
+            if normalized is not None:
+                return normalized
+
+        return None
 
     async def search(self, query: str) -> list[dict[str, Any]]:
         """Search LRCLIB candidates for manual track correction."""
@@ -170,28 +209,43 @@ class LRCLIBClient:
     ) -> LyricResult | None:
         synced_text = candidate.get("syncedLyrics")
         plain_text = candidate.get("plainLyrics")
-        text = synced_text or plain_text
+        text = synced_text or plain_text or candidate.get("lyrics") or candidate.get("text")
         if not text:
             return None
 
+        title = LRCLIBClient._normalize(
+            candidate.get("trackName")
+            or candidate.get("track_name")
+            or candidate.get("name")
+            or candidate.get("title")
+            or track_name
+        )
+        artist = LRCLIBClient._normalize(
+            candidate.get("artistName")
+            or candidate.get("artist_name")
+            or candidate.get("artist")
+            or artist_name
+        )
+        album = LRCLIBClient._normalize(
+            candidate.get("albumName")
+            or candidate.get("album_name")
+            or candidate.get("album")
+            or (album_name or "")
+        )
+
         return LyricResult(
-            text=text,
+            text=str(text),
             synced=bool(synced_text),
-            title=LRCLIBClient._normalize(
-                candidate.get("trackName") or candidate.get("name") or track_name
-            ),
-            artist=LRCLIBClient._normalize(
-                candidate.get("artistName") or candidate.get("artist") or artist_name
-            ),
-            album=LRCLIBClient._normalize(
-                candidate.get("albumName") or candidate.get("album") or (album_name or "")
-            ),
+            title=title,
+            artist=artist,
+            album=album,
             duration=LRCLIBClient._normalize_duration(
                 candidate.get("duration") or candidate.get("duration_ms") or duration
             ),
             cover_url=candidate.get("coverArt")
             or candidate.get("cover_art")
             or candidate.get("albumArt")
+            or candidate.get("cover_url")
             or None,
         )
 

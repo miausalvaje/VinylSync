@@ -1,6 +1,8 @@
 export function startVisualizer(store) {
   const canvas = document.querySelector("#visualizer-canvas");
-  const context = canvas.getContext("2d");
+  const context = canvas?.getContext("2d");
+  if (!canvas || !context) return;
+
   let bands = new Array(64).fill(0);
   let target = bands;
   let rms = 0;

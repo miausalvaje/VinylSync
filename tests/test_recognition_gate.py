@@ -4,13 +4,20 @@ import time
 
 import pytest
 
+from vinyl_lyrics.audio.capture import RecognitionSnapshot
 from vinyl_lyrics.main import ApplicationRuntime
 from vinyl_lyrics.recognition.base import Track
 
 
 class FakeCapture:
-    def recognition_wav(self, seconds: float = 8.0) -> bytes:
-        return b"wav"
+    def recognition_snapshot(
+        self,
+        seconds: float = 8.0,
+        since: float | None = None,
+        min_seconds: float = 0.0,
+    ) -> RecognitionSnapshot | None:
+        del since, min_seconds
+        return RecognitionSnapshot(b"wav", time.monotonic() - seconds, seconds)
 
 
 class FakeRecognizer:

@@ -5,15 +5,23 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-import sounddevice
-
 from vinyl_lyrics.audio.source import AudioSourceInfo
 
 
 def list_audio_sources() -> list[dict[str, Any]]:
     """List input and, when supported, Windows loopback sources."""
+    try:
+        import sounddevice
+    except (ImportError, OSError):
+        return []
     sources: list[dict[str, Any]] = []
-    for index, info in enumerate(sounddevice.query_devices()):
+    try:
+        devices = sounddevice.query_devices()
+        default_device = sounddevice.default.device[0]
+        default_index = int(default_device) if default_device is not None else -1
+    except (OSError, RuntimeError):
+        return []
+    for index, info in enumerate(devices):
         if not isinstance(info, dict) or int(info.get("max_input_channels") or 0) <= 0:
             continue
         sources.append(
@@ -21,7 +29,7 @@ def list_audio_sources() -> list[dict[str, Any]]:
                 "source_id": f"input:{index}",
                 "name": str(info.get("name") or f"Input {index}"),
                 "type": "input",
-                "default": index == int(sounddevice.default.device[0]),
+                "default": index == default_index,
             }
         )
 

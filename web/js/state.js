@@ -19,12 +19,17 @@ class StateStore {
   }
 
   connectState() {
-    const socket = new WebSocket(`ws://${location.host}/ws`);
+    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    const socket = new WebSocket(`${protocol}//${location.host}/ws`);
     socket.onopen = () => this.setConnection(true);
     socket.onmessage = (event) => {
-      const payload = JSON.parse(event.data);
-      this.state = { ...this.state, ...payload };
-      this.listeners.forEach((listener) => listener(this.state));
+      try {
+        const payload = JSON.parse(event.data);
+        this.state = { ...this.state, ...payload };
+        this.listeners.forEach((listener) => listener(this.state));
+      } catch {
+        // Ignore non-JSON frames and keep the socket alive.
+      }
     };
     socket.onclose = () => {
       this.setConnection(false);
@@ -34,10 +39,15 @@ class StateStore {
   }
 
   connectSpectrum() {
-    const socket = new WebSocket(`ws://${location.host}/ws/spectrum`);
+    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    const socket = new WebSocket(`${protocol}//${location.host}/ws/spectrum`);
     socket.onmessage = (event) => {
-      const payload = JSON.parse(event.data);
-      this.spectrumListeners.forEach((listener) => listener(payload));
+      try {
+        const payload = JSON.parse(event.data);
+        this.spectrumListeners.forEach((listener) => listener(payload));
+      } catch {
+        // Ignore non-JSON frames.
+      }
     };
     socket.onclose = () => window.setTimeout(() => this.connectSpectrum(), 1500);
   }
