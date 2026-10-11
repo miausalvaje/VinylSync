@@ -1,1 +1,68 @@
 """Application configuration loading."""
+
+from __future__ import annotations
+
+import os
+from copy import deepcopy
+from pathlib import Path
+from typing import Any
+
+import yaml
+from dotenv import load_dotenv
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+DEFAULT_CONFIG_PATH = ROOT_DIR / "config.yaml"
+
+
+def load_dotenv_if_present() -> None:
+    """Load environment variables from a local .env file when present."""
+    load_dotenv(ROOT_DIR / ".env")
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    result = deepcopy(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = deepcopy(value)
+    return result
+
+
+def load_config(config_path: str | os.PathLike[str] | None = None) -> dict[str, Any]:
+    """Load YAML configuration and apply environment overrides."""
+    load_dotenv_if_present()
+
+    path = (
+        Path(config_path)
+        if config_path
+        else Path(os.getenv("VINYL_LYRICS_CONFIG", DEFAULT_CONFIG_PATH))
+    )
+    if not path.is_absolute():
+        path = (ROOT_DIR / path).resolve()
+
+    with path.open("r", encoding="utf-8") as handle:
+        config: dict[str, Any] = yaml.safe_load(handle) or {}
+
+    env_overrides = {
+        "recognition": {
+            "acrcloud": {
+                "host": os.getenv("ACR_HOST"),
+                "access_key": os.getenv("ACR_ACCESS_KEY"),
+                "access_secret": os.getenv("ACR_ACCESS_SECRET"),
+            },
+            "audd": {"api_token": os.getenv("AUDD_API_TOKEN")},
+        }
+    }
+
+    cleaned = {
+        key: value for key, value in env_overrides["recognition"].items() if any(value.values())
+    }
+    if cleaned:
+        config.setdefault("recognition", {})
+        config["recognition"] = _deep_merge(config["recognition"], cleaned)
+
+    return config
+
+
+__all__ = ["DEFAULT_CONFIG_PATH", "load_config"]

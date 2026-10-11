@@ -1,0 +1,6 @@
+.search-dialog { width: min(620px, 90vw); border: 1px solid #555865; border-radius: 16px; background: #17181ef2; color: #fff; }
+.search-form { position: relative; }
+.search-form label, .search-form input { display: block; width: 100%; margin: .8rem 0; }
+.search-form input { background: #25262e; border: 1px solid #5d606d; border-radius: 8px; color: #fff; padding: .8rem; }
+.search-result { display: flex; flex-direction: column; width: 100%; gap: .25rem; border: 0; border-bottom: 1px solid #373944; background: transparent; color: white; padding: .8rem 0; text-align: left; }
+.search-result span { color: #a8abb6; font-size: .85rem; }

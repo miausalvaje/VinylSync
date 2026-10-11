@@ -1,0 +1,8 @@
+.side-panel { position: fixed; z-index: 5; top: 0; right: 0; width: min(360px, 92vw); height: 100%; padding: 2rem; background: #17181eee; backdrop-filter: blur(24px); transform: translateX(100%); transition: transform .3s ease; }
+.side-panel--open { transform: translateX(0); }
+.side-panel h2 { margin-top: 0; }
+.side-panel label, .side-panel select, .side-panel input { display: block; width: 100%; margin: 1rem 0 .4rem; }
+.side-panel select, .side-panel input { accent-color: #d7d9e0; }
+.panel-close { position: absolute; top: 1rem; right: 1rem; border: 0; background: none; color: #fff; font-size: 1.8rem; }
+.offset-controls { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: 2rem; }
+.offset-controls span { flex-basis: 100%; }

@@ -1,1 +1,12 @@
-/* Layout styles are implemented with the frontend phase. */
+.view { position: absolute; inset: 0; opacity: 0; pointer-events: none; transition: opacity .8s ease; }
+.view--active { opacity: 1; pointer-events: auto; }
+.visualizer-hud { position: absolute; inset: 24px 32px auto; display: flex; justify-content: space-between; color: #a8abb6; font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; }
+.status-pill { border: 1px solid #555865; border-radius: 999px; padding: 6px 10px; }
+.status-pill--error { border-color: #bf7b7b; color: #ffb7b7; }
+.visualizer-message { position: absolute; inset: 32% 0 auto; text-align: center; color: #e6e7eb; }
+.visualizer-message img { opacity: .8; }
+.visualizer-message p { font-size: 1.15rem; margin: 1rem 0 .4rem; }
+.visualizer-message small { color: #858894; }
+.floating-button { position: fixed; right: 24px; bottom: 24px; border: 1px solid #555865; border-radius: 50%; width: 44px; height: 44px; background: #1a1b21cc; color: white; }
+.secondary-button, .offset-controls button { border: 1px solid #858895; border-radius: 999px; background: #ffffff14; color: #fff; padding: .6rem 1rem; }
+@media (prefers-reduced-motion: reduce) { .view { transition: none; } }

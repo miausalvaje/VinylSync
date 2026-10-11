@@ -1,1 +1,10 @@
-/* Lyrics styles are implemented with the frontend phase. */
+.artwork-backdrop { position: absolute; inset: -10%; background: center/cover no-repeat; filter: blur(70px); opacity: .35; transform: scale(1.1); }
+.lyrics-shell { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(240px, .8fr) minmax(0, 1.4fr); gap: clamp(2rem, 7vw, 8rem); align-items: center; height: 100%; padding: 7vw 9vw; background: linear-gradient(90deg, #090a0edd, #090a0e99); }
+.track-artwork { width: min(32vw, 380px); aspect-ratio: 1; object-fit: cover; border-radius: 8px; box-shadow: 0 24px 70px #0008; }
+.track-artist { color: #c1c3cc; margin: 1.5rem 0 .3rem; }
+.track-column h1 { font-size: clamp(1.8rem, 3vw, 3rem); margin: 0 0 1.5rem; }
+.lyrics-column { height: 70vh; overflow: hidden; mask-image: linear-gradient(transparent, black 12%, black 88%, transparent); }
+.lyrics-lines { padding: 30vh 0; }
+.lyrics-lines p { color: #fff; filter: blur(1.5px); font-size: clamp(1.2rem, 2.5vw, 2.6rem); font-weight: 700; opacity: .3; margin: 1rem 0; transition: opacity .5s, filter .5s, transform .5s; }
+.lyrics-lines p.lyrics-line--active { opacity: 1; filter: none; transform: scale(1.03); }
+.lyrics-placeholder { color: #c1c3cc !important; filter: none !important; opacity: 1 !important; }

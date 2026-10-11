@@ -1,12 +1,24 @@
+# Audio input settings.
 audio:
-  device: null
+  # Stable source id such as input:0 or loopback:3. Null selects the default.
+  source_id: null
+  # Capture sample rate in Hz.
   sample_rate: 44100
-  channels: 1
-  chunk_seconds: 8
+  # Circular buffer duration in seconds.
+  buffer_seconds: 15
+  # Gain applied before spectrum and silence analysis.
+  gain_db: 0
 
+# Recognition settings.
 recognition:
+  # Available values: shazam, acrcloud, audd.
   provider: shazam
+  # Re-identify the current track after this many seconds.
   interval_seconds: 45
+  # Signal must remain above this duration before recognition starts.
+  min_signal_seconds: 1.0
+  # Silence duration that separates vinyl tracks.
+  track_gap_seconds: 1.5
   shazam:
     enabled: true
   acrcloud:
@@ -18,11 +30,16 @@ recognition:
     enabled: false
     api_token: null
 
+# Lyrics and cache settings.
 lyrics:
+  # LRCLIB API base URL.
   lrclib_base_url: https://lrclib.net/api
+  # Identifying HTTP User-Agent sent to LRCLIB.
   user_agent: vinyl-lyrics/0.1.0
+  # Local SQLite cache path.
   cache_path: data/lyrics.sqlite3
 
+# Local web server settings.
 server:
   host: 127.0.0.1
   port: 8000
