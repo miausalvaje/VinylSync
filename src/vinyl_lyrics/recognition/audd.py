@@ -1,0 +1,1 @@
+"""AudD recognition provider."""

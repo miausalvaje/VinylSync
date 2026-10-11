@@ -1,0 +1,28 @@
+audio:
+  device: null
+  sample_rate: 44100
+  channels: 1
+  chunk_seconds: 8
+
+recognition:
+  provider: shazam
+  interval_seconds: 45
+  shazam:
+    enabled: true
+  acrcloud:
+    enabled: false
+    host: null
+    access_key: null
+    access_secret: null
+  audd:
+    enabled: false
+    api_token: null
+
+lyrics:
+  lrclib_base_url: https://lrclib.net/api
+  user_agent: vinyl-lyrics/0.1.0
+  cache_path: data/lyrics.sqlite3
+
+server:
+  host: 127.0.0.1
+  port: 8000
