@@ -24,12 +24,15 @@ async def main() -> None:
         channels=1,
         buffer_seconds=float(audio.get("buffer_seconds", 15.0)),
     )
-    recognizer = create_recognizer(config)
+    recognizer = create_recognizer(config=config)
     capture.start()
     try:
         print("Capturing audio. Play a song and wait eight seconds...")
         await asyncio.sleep(8.5)
         snapshot = capture.recognition_snapshot(8.0)
+        if snapshot is None:
+            print("No audio captured.")
+            return
         print(f"Captured {snapshot.sample_seconds:.2f} seconds.")
         if hasattr(recognizer, "recognize_raw"):
             raw = await recognizer.recognize_raw(snapshot.wav_bytes)

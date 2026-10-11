@@ -22,7 +22,12 @@ export function startVisualizer(store) {
     if (payload.source) document.querySelector("#source-label").textContent = payload.source.name;
   });
 
+  const visualizerView = document.querySelector("#visualizer-view");
   function draw() {
+    if (!visualizerView?.classList.contains("view--active")) {
+      requestAnimationFrame(draw);
+      return;
+    }
     const width = window.innerWidth;
     const height = window.innerHeight;
     context.fillStyle = "#090a0e";

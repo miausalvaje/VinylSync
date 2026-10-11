@@ -3,7 +3,13 @@ export function setupBackground(store) {
   const artwork = document.querySelector("#track-artwork");
   store.onState((payload) => {
     const url = payload.track?.cover_url;
-    if (!url) return;
+    if (!url) {
+      artwork.crossOrigin = null;
+      artwork.src = "/favicon.svg";
+      backdrop.style.backgroundImage = "none";
+      document.documentElement.style.setProperty("--artwork-color", "#252733");
+      return;
+    }
     artwork.crossOrigin = "anonymous";
     artwork.src = url;
     backdrop.style.backgroundImage = `url("${url}")`;

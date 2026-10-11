@@ -1,8 +1,13 @@
 export function setupLyricsSync(store) {
   const container = document.querySelector("#lyrics-lines");
+  const column = container ? container.parentElement : null;
   let lines = [];
+  let isSynced = false;
   let startedAt = 0;
   let activeIndex = -1;
+  let manualScrollTimeout = null;
+  let isManualScrolling = false;
+  let currentScrollOffset = 0;
 
   store.onState((payload) => {
     if (payload.elapsed_seconds !== undefined) {
@@ -10,37 +15,93 @@ export function setupLyricsSync(store) {
     }
     if (!payload.lyrics || !payload.lyrics.text) {
       lines = [];
+      isSynced = false;
       activeIndex = -1;
+      isManualScrolling = false;
+      currentScrollOffset = 0;
+      container.classList.remove("lyrics-lines--plain");
       container.innerHTML = '<p class="lyrics-placeholder">No lyrics available.</p>';
+      container.style.setProperty("--lyrics-offset", "0px");
       return;
     }
-    lines = payload.lyrics.synced
+    isSynced = Boolean(payload.lyrics.synced);
+    lines = isSynced
       ? parseLrc(payload.lyrics.text)
       : payload.lyrics.text.split(/\r?\n/).map((text) => ({ time: 0, text }));
     activeIndex = -1;
+    isManualScrolling = false;
+    currentScrollOffset = 0;
+    container.style.setProperty("--lyrics-offset", "0px");
+    container.classList.toggle("lyrics-lines--plain", !isSynced);
     renderLines();
-    updateActiveLine(0);
+    if (isSynced) {
+      updateActiveLine(0, true);
+    }
   });
 
+  let activeElement = null;
+  let nearElements = [];
+
   function renderLines() {
+    activeElement = null;
+    nearElements = [];
     container.innerHTML = lines.map((line, index) => (
-      `<p data-index="${index}" style="--distance: 0">${line.text ? escapeHtml(line.text) : '<span class="instrumental-pause" aria-label="Instrumental pause">•••</span>'}</p>`
+      `<p data-index="${index}">${line.text ? escapeHtml(line.text) : '<span class="instrumental-pause" aria-label="Instrumental pause">•••</span>'}</p>`
     )).join("");
   }
 
-  function updateActiveLine(index) {
-    if (index === activeIndex) return;
-    activeIndex = index;
-    const elements = [...container.querySelectorAll("p")];
-    elements.forEach((element, itemIndex) => {
-      const distance = Math.abs(itemIndex - activeIndex);
-      element.style.setProperty("--distance", distance);
-      element.classList.toggle("lyrics-line--active", itemIndex === activeIndex);
-    });
+  function scrollToActive(immediate = false) {
+    if (!container || !column) return;
+    const elements = container.children;
     const active = elements[activeIndex];
     if (active) {
-      const offset = active.offsetTop - (container.clientHeight / 2) + active.offsetHeight / 2;
-      container.style.setProperty("--lyrics-offset", `${Math.max(0, offset)}px`);
+      const viewportHeight = column.clientHeight || window.innerHeight * 0.74;
+      const focalPoint = Math.round(viewportHeight * 0.36);
+      currentScrollOffset = Math.max(0, Math.round(active.offsetTop - focalPoint));
+      if (immediate) {
+        container.style.transition = "none";
+        container.style.setProperty("--lyrics-offset", `${currentScrollOffset}px`);
+        void container.offsetHeight;
+        container.style.transition = "";
+      } else {
+        container.style.setProperty("--lyrics-offset", `${currentScrollOffset}px`);
+      }
+    }
+  }
+
+  function updateActiveLine(index, immediate = false) {
+    if (index === activeIndex) return;
+    activeIndex = index;
+
+    if (activeElement) {
+      activeElement.classList.remove("lyrics-line--active");
+    }
+    nearElements.forEach((el) => {
+      el.classList.remove("lyrics-line--near");
+    });
+    nearElements = [];
+
+    const elements = container.children;
+    if (activeIndex >= 0 && activeIndex < elements.length) {
+      activeElement = elements[activeIndex];
+      activeElement.classList.add("lyrics-line--active");
+
+      if (activeIndex > 0) {
+        const prev = elements[activeIndex - 1];
+        prev.classList.add("lyrics-line--near");
+        nearElements.push(prev);
+      }
+      if (activeIndex + 1 < elements.length) {
+        const next = elements[activeIndex + 1];
+        next.classList.add("lyrics-line--near");
+        nearElements.push(next);
+      }
+    } else {
+      activeElement = null;
+    }
+
+    if (!isManualScrolling) {
+      scrollToActive(immediate);
     }
   }
 
@@ -60,8 +121,54 @@ export function setupLyricsSync(store) {
     return result;
   }
 
+  column?.addEventListener("wheel", (event) => {
+    isManualScrolling = true;
+    container.style.transition = "transform 0.08s ease-out";
+    currentScrollOffset = Math.max(0, currentScrollOffset + event.deltaY);
+    container.style.setProperty("--lyrics-offset", `${currentScrollOffset}px`);
+    clearTimeout(manualScrollTimeout);
+    manualScrollTimeout = setTimeout(() => {
+      isManualScrolling = false;
+      container.style.transition = "";
+      if (isSynced && activeIndex >= 0) {
+        scrollToActive();
+      }
+    }, 3500);
+  }, { passive: true });
+
+  container?.addEventListener("click", (event) => {
+    const p = event.target.closest("p[data-index]");
+    if (!p) return;
+    const index = Number(p.dataset.index);
+    if (isNaN(index)) return;
+    if (isSynced) {
+      isManualScrolling = true;
+      clearTimeout(manualScrollTimeout);
+      const viewportHeight = column ? column.clientHeight : window.innerHeight * 0.74;
+      const focalPoint = viewportHeight * 0.36;
+      currentScrollOffset = Math.max(0, p.offsetTop - focalPoint + (p.offsetHeight * 0.1));
+      container.style.transition = "";
+      container.style.setProperty("--lyrics-offset", `${currentScrollOffset}px`);
+      manualScrollTimeout = setTimeout(() => {
+        isManualScrolling = false;
+        if (isSynced && activeIndex >= 0) {
+          scrollToActive();
+        }
+      }, 5000);
+    }
+  });
+
+  window.addEventListener("resize", () => {
+    if (!isManualScrolling && isSynced && activeIndex >= 0) {
+      scrollToActive();
+    }
+  });
+
   function tick() {
-    if (lines.length) updateActiveLine(findActiveIndex(performance.now() / 1000 - startedAt));
+    if (isSynced && lines.length) {
+      const elapsed = performance.now() / 1000 - startedAt;
+      updateActiveLine(findActiveIndex(elapsed));
+    }
     requestAnimationFrame(tick);
   }
   tick();

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -113,7 +114,14 @@ class LRCLIBClient:
             timeout=15.0, headers=headers, follow_redirects=True
         ) as client:
             response = await client.get(url, params=params)
-            response.raise_for_status()
+            if getattr(response, "status_code", None) == 404:
+                return None
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code == 404:
+                    return None
+                raise
             return response.json()
 
     async def get_lyrics(
@@ -133,7 +141,11 @@ class LRCLIBClient:
         if duration is not None:
             params["duration"] = int(round(float(duration)))
 
-        match = await self._request_json("/api/get", params)
+        try:
+            match = await self._request_json("/api/get", params)
+        except httpx.HTTPError:
+            match = None
+
         if isinstance(match, dict):
             result = self._normalize_lyrics_result(
                 match, artist_name, track_name, album_name, duration
@@ -150,14 +162,33 @@ class LRCLIBClient:
                 if result is not None:
                     return result
 
-        search_params = [
+        clean_track = re.sub(r"\s*[\(\[].*?[\)\]]", "", track_name).strip()
+        if clean_track and clean_track.casefold() != track_name.casefold():
+            clean_params = dict(params)
+            clean_params["track_name"] = clean_track
+            try:
+                clean_match = await self._request_json("/api/get", clean_params)
+            except httpx.HTTPError:
+                clean_match = None
+            if isinstance(clean_match, dict):
+                result = self._normalize_lyrics_result(
+                    clean_match, artist_name, track_name, album_name, duration
+                )
+                if result is not None:
+                    return result
+
+        search_params: list[dict[str, Any]] = [
             {"track_name": track_name, "artist_name": artist_name},
-            {"q": f"{artist_name} {track_name}".strip()},
         ]
+        if clean_track and clean_track.casefold() != track_name.casefold():
+            search_params.append({"track_name": clean_track, "artist_name": artist_name})
+            search_params.append({"q": f"{artist_name} {clean_track}".strip()})
+        search_params.append({"q": f"{artist_name} {track_name}".strip()})
+
         for search_params_item in search_params:
             try:
                 search_results = await self._request_json("/api/search", search_params_item)
-            except httpx.HTTPStatusError:
+            except httpx.HTTPError:
                 continue
             candidates = search_results if isinstance(search_results, list) else []
             if not candidates:

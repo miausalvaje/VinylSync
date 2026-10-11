@@ -1,6 +1,7 @@
 export function setupSettings(store) {
   const panel = document.querySelector("#settings-panel");
   const button = document.querySelector("#settings-button");
+  const backdrop = document.querySelector("#settings-backdrop");
   const sourceSelect = document.querySelector("#source-select");
   const meter = document.querySelector("#level-meter");
   const thresholdMarker = document.querySelector("#threshold-marker");
@@ -14,14 +15,37 @@ export function setupSettings(store) {
   const open = () => {
     panel.classList.add("side-panel--open");
     panel.setAttribute("aria-hidden", "false");
+    backdrop?.classList.add("panel-backdrop--open");
+    backdrop?.setAttribute("aria-hidden", "false");
   };
+
   const close = () => {
     panel.classList.remove("side-panel--open");
     panel.setAttribute("aria-hidden", "true");
+    backdrop?.classList.remove("panel-backdrop--open");
+    backdrop?.setAttribute("aria-hidden", "true");
   };
-  button.addEventListener("click", () => (
-    panel.classList.contains("side-panel--open") ? close() : open()
-  ));
+
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    panel.classList.contains("side-panel--open") ? close() : open();
+  });
+
+  const closeButton = panel.querySelector(".panel-close");
+  closeButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    close();
+  });
+
+  backdrop?.addEventListener("click", close);
+
+  document.addEventListener("pointerdown", (event) => {
+    if (panel.classList.contains("side-panel--open")) {
+      if (!panel.contains(event.target) && !button.contains(event.target)) {
+        close();
+      }
+    }
+  });
 
   fetch("/api/sources")
     .then((response) => response.ok ? response.json() : Promise.reject(new Error("Unable to load audio sources.")))
@@ -49,6 +73,7 @@ export function setupSettings(store) {
       setValue("gain-slider", payload.gain_db, "gain-value", " dB");
       setValue("threshold-slider", payload.silence_enter_dbfs, "threshold-value", " dBFS");
       setValue("font-slider", payload.font_size, "font-value", "×");
+      document.documentElement.style.setProperty("--lyrics-scale", payload.font_size ?? 1);
       updateOffsetDisplay();
       updateThresholdMarker(payload.silence_enter_dbfs);
     })
@@ -62,6 +87,7 @@ export function setupSettings(store) {
   document.querySelector("#offset-up").addEventListener("click", () => adjustOffset(0.5));
 
   store.onSpectrum((payload) => {
+    if (!panel.classList.contains("side-panel--open")) return;
     const dbfs = Math.max(-80, Math.min(0, Number(payload.dbfs ?? -80)));
     const level = ((dbfs + 80) / 80) * 100;
     meter.style.setProperty("--level", `${Math.max(0, Math.min(100, level))}%`);
@@ -73,6 +99,7 @@ export function setupSettings(store) {
       settings[key] = value;
       document.querySelector(`#${output}`).textContent = `${value}${suffix}`;
       if (key === "silence_enter_dbfs") updateThresholdMarker(value);
+      if (key === "font_size") document.documentElement.style.setProperty("--lyrics-scale", value);
       queueSave({ [key]: value });
     });
   }

@@ -22,6 +22,7 @@ from vinyl_lyrics.audio.processing import (
 from vinyl_lyrics.config import load_config
 from vinyl_lyrics.lyrics.cache import LyricsCache
 from vinyl_lyrics.lyrics.lrclib import LRCLIBClient, LyricResult
+from vinyl_lyrics.lyrics.multi import MultiProviderLyricsClient
 from vinyl_lyrics.recognition import create_recognizer
 from vinyl_lyrics.recognition.base import Track
 from vinyl_lyrics.server.models import TrackOverride
@@ -61,10 +62,11 @@ class ApplicationRuntime:
             buffer_seconds=float(audio_config.get("buffer_seconds", 15.0)),
         )
         self.recognizer = create_recognizer(config=config)
-        self.lyrics_client = LRCLIBClient(
+        lrclib_client = LRCLIBClient(
             base_url=str(lyrics_config.get("lrclib_base_url", "https://lrclib.net")),
             user_agent=str(lyrics_config.get("user_agent", "VinylSync/0.1.0")),
         )
+        self.lyrics_client = MultiProviderLyricsClient(lrclib_client=lrclib_client)
         self.cache = LyricsCache(lyrics_config.get("cache_path", "data/lyrics.sqlite3"))
         self.player = PlayerState(
             reidentify_interval=float(recognition.get("interval_seconds", 45))
@@ -192,9 +194,16 @@ class ApplicationRuntime:
                     cached.duration or self.player.current_track.duration
                 )
             return
-        lyrics = await self.lyrics_client.get_lyrics(
-            track.artist, track.title, track.album, track.duration
-        )
+        try:
+            lyrics = await self.lyrics_client.get_lyrics(
+                track.artist, track.title, track.album, track.duration
+            )
+        except (httpx.HTTPError, OSError) as error:
+            logger.warning(
+                "Failed to fetch lyrics for %s - %s: %s", track.artist, track.title, error
+            )
+            lyrics = None
+
         if lyrics is not None:
             if lyrics.cover_url is None:
                 lyrics.cover_url = track.cover_url
@@ -202,7 +211,10 @@ class ApplicationRuntime:
                 self.player.current_track.duration = (
                     lyrics.duration or self.player.current_track.duration
                 )
-            self.cache.save(lyrics)
+            try:
+                self.cache.save(lyrics, alias_artist=track.artist, alias_title=track.title)
+            except TypeError:
+                self.cache.save(lyrics)
             logger.info(
                 "Lyrics loaded for %s - %s (%s)",
                 lyrics.artist,

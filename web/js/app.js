@@ -52,6 +52,9 @@ let inactivityTimer;
 function resetInactivity() {
   document.body.classList.remove("ui-idle");
   clearTimeout(inactivityTimer);
+  const panelOpen = document.querySelector("#settings-panel")?.classList.contains("side-panel--open");
+  const dialogOpen = document.querySelector("#search-dialog")?.open;
+  if (panelOpen || dialogOpen) return;
   inactivityTimer = setTimeout(() => document.body.classList.add("ui-idle"), 3000);
 }
 ["mousemove", "keydown", "touchstart"].forEach((eventName) => {
@@ -62,15 +65,26 @@ resetInactivity();
 document.addEventListener("keydown", (event) => {
   if (event.target.matches("input, select, textarea")) return;
   if (event.key.toLowerCase() === "v") setView(lyricsView.classList.contains("view--active") ? "visualizer" : "lyrics", true);
-  if (event.key.toLowerCase() === "s") document.querySelector("#settings-panel").classList.add("side-panel--open");
+  if (event.key.toLowerCase() === "s") {
+    document.querySelector("#settings-button")?.click();
+  }
   if (event.key.toLowerCase() === "m") document.querySelector("#manual-search-button").click();
   if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
     document.querySelector(event.key === "ArrowLeft" ? "#offset-down" : "#offset-up").click();
   }
   if (event.key === "Escape") {
+    const settingsPanel = document.querySelector("#settings-panel");
+    const searchDialog = document.querySelector("#search-dialog");
+    if (settingsPanel?.classList.contains("side-panel--open")) {
+      const closeBtn = settingsPanel.querySelector(".panel-close");
+      closeBtn ? closeBtn.click() : settingsPanel.classList.remove("side-panel--open");
+      return;
+    }
+    if (searchDialog?.open) {
+      searchDialog.close();
+      return;
+    }
     forcedView = false;
     setView("visualizer");
-    document.querySelector("#settings-panel").classList.remove("side-panel--open");
-    document.querySelector("#search-dialog").close();
   }
 });

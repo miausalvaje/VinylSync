@@ -38,18 +38,51 @@ class LyricsCache:
             )
 
     @staticmethod
-    def build_cache_key(artist: str, title: str, duration: float | None) -> str:
-        normalized_artist = (artist or "").strip().lower()
-        normalized_title = (title or "").strip().lower()
+    def _normalize_text(text: str) -> str:
+        if not text:
+            return ""
+        # Standardize curved quotes, curly apostrophes, dashes, and whitespace
+        t = text.replace("’", "'").replace("‘", "'").replace("`", "'").replace("´", "'")
+        t = t.replace("“", '"').replace("”", '"').replace("«", '"').replace("»", '"')
+        t = t.replace("–", "-").replace("—", "-")
+        import re
+
+        return re.sub(r"\s+", " ", t).strip().lower()
+
+    @classmethod
+    def build_cache_key(cls, artist: str, title: str, duration: float | None) -> str:
+        normalized_artist = cls._normalize_text(artist)
+        normalized_title = cls._normalize_text(title)
         normalized_duration = int(round(float(duration))) if duration is not None else 0
         return f"{normalized_artist}|{normalized_title}|{normalized_duration}"
 
-    @staticmethod
-    def cache_keys_for(artist: str, title: str, duration: float | None) -> list[str]:
-        keys = [LyricsCache.build_cache_key(artist, title, duration)]
+    @classmethod
+    def cache_keys_for(cls, artist: str, title: str, duration: float | None) -> list[str]:
+        import re
+
+        keys = [cls.build_cache_key(artist, title, duration)]
         if duration is not None:
-            keys.append(LyricsCache.build_cache_key(artist, title, None))
-        return keys
+            keys.append(cls.build_cache_key(artist, title, None))
+
+        clean_title = re.sub(r"\s*[\(\[].*?[\)\]]", "", title).strip()
+        if clean_title and clean_title.casefold() != title.casefold():
+            keys.append(cls.build_cache_key(artist, clean_title, duration))
+            if duration is not None:
+                keys.append(cls.build_cache_key(artist, clean_title, None))
+
+        primary_artist = re.split(
+            r"\s*(?:&|feat\.?|ft\.?|featuring|,)\s*", artist, flags=re.IGNORECASE
+        )[0].strip()
+        if primary_artist and primary_artist.casefold() != artist.casefold():
+            keys.append(cls.build_cache_key(primary_artist, title, duration))
+            if duration is not None:
+                keys.append(cls.build_cache_key(primary_artist, title, None))
+            if clean_title and clean_title.casefold() != title.casefold():
+                keys.append(cls.build_cache_key(primary_artist, clean_title, duration))
+                if duration is not None:
+                    keys.append(cls.build_cache_key(primary_artist, clean_title, None))
+
+        return list(dict.fromkeys(keys))
 
     def get(self, artist: str, title: str, duration: float | None) -> LyricResult | None:
         for key in self.cache_keys_for(artist, title, duration):
@@ -73,8 +106,21 @@ class LyricsCache:
                     )
         return None
 
-    def save(self, result: LyricResult) -> None:
+    def save(
+        self,
+        result: LyricResult,
+        alias_artist: str | None = None,
+        alias_title: str | None = None,
+    ) -> None:
         keys = self.cache_keys_for(result.artist, result.title, result.duration)
+        if alias_artist or alias_title:
+            keys.extend(
+                self.cache_keys_for(
+                    alias_artist or result.artist,
+                    alias_title or result.title,
+                    result.duration,
+                )
+            )
         with self._connect() as connection:
             for key in dict.fromkeys(keys):
                 connection.execute(
