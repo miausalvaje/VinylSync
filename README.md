@@ -69,9 +69,11 @@ Do not commit `.env`.
 | `recognition.provider` | `shazam` | Provider name: `shazam`, `acrcloud`, or `audd`. |
 | `recognition.interval_seconds` | `45` | Re-identification interval. |
 | `recognition.min_signal_seconds` | `1.0` | Minimum sustained signal before a recognition attempt. |
+| `recognition.track_gap_seconds` | `1.5` | Minimum silence duration to treat a pause as a gap (does not discard the track on its own). |
+| `recognition.break_max_seconds` | `10` | Maximum silence duration during a track before assuming playback has stopped (needle lifted). |
+| `recognition.end_margin_seconds` | `10` | Margin before track end to treat a silence as a track boundary or song transition. |
 | `recognition.idle_timeout_seconds` | `20` | Time of continuous silence before returning to the visualizer. |
-| `recognition.min_sample_seconds` | `5` | Minimum new audio required after a track gap. |
-| `recognition.track_gap_seconds` | `1.5` | Silence gap used to detect a new vinyl side or track change. |
+| `recognition.min_sample_seconds` | `5` | Minimum new audio required after silence before recognition restarts. |
 | `lyrics.lrclib_base_url` | `https://lrclib.net/api` | LRCLIB API base URL. |
 | `lyrics.cache_path` | `data/lyrics.sqlite3` | Local SQLite cache file. |
 | `server.host` | `127.0.0.1` | Local bind address. |
@@ -136,10 +138,12 @@ Set `recognition.provider: audd` and provide `AUDD_API_TOKEN` in `.env`.
 
 ## Tips for vinyl
 
-- Prefer the phono preamp or receiver line output instead of an ambient microphone. This produces a cleaner signal for recognition.
-- Keep the record level stable and avoid clipping the input.
-- The app computes the effective playback position from the detected offset and the time elapsed since the sample started.
-- A re-identification adjusts the offset only when the drift exceeds 1.5 seconds, which minimizes jumpy lyric sync.
+- **Signal connection**: Prefer the phono preamp or receiver line output instead of an ambient microphone. This produces a cleaner signal for recognition.
+- **Calibrating the silence threshold**: Open the Settings panel (`S`) and watch the live audio level meter. Note the background surface noise floor when the needle is in the lead-in groove or between songs (typically -50 to -42 dBFS). Position the silence threshold slider just above this noise floor so that runout grooves register as silence while soft passages in songs register as signal.
+- **Mid-song breaks and instrumental pauses (`break_max_seconds`)**: Vinyl tracks frequently have quiet interludes, solo sections, or silent dramatic breaks. VinylSync classifies pauses occurring before the end of the song as *breaks* rather than track boundaries. The playback clock continues running, keeping lyrics on screen and in sync. If a pause lasts longer than `break_max_seconds` (default 10s), the system assumes the turntable was stopped or the tonearm was lifted, safely returning to idle. Tweak this value if your records contain unusually long ambient interludes.
+- **Track transitions and runout grooves (`end_margin_seconds`)**: Because vinyl pressings and digital database releases can differ slightly in outro lengths and tempo, `end_margin_seconds` (default 10s) provides a window near the end of the expected track duration. Pauses occurring within this margin are treated as *track boundaries*, cleanly discarding the previous song and preparing to identify the next track as soon as sound resumes.
+- **Background verification and drift control**: When sound returns after a mid-song break, VinylSync runs a non-intrusive background verification. If the same track is confirmed, it only adjusts playback position if detected drift exceeds 1.5 seconds, avoiding jarring visual jumps. If a different track is detected, it requests a confirmation sample before switching tracks.
+- **Input levels**: Keep the record level stable and avoid clipping the input.
 
 ## Troubleshooting
 

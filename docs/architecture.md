@@ -29,9 +29,51 @@
 ## Runtime states
 
 - `listening`: the app is actively monitoring audio, but no track has been identified yet.
-- `identifying`: a recognition request is in flight.
-- `playing`: a recognized track is active and lyrics are being displayed.
-- `idle`: the app has detected prolonged silence or repeated recognition failures and has returned to the visualizer state.
+- `identifying`: an initial or post-boundary recognition request is in flight.
+- `playing`: a recognized track is active and lyrics are being displayed. During mid-song breaks, the state remains `playing` and the playback clock keeps running.
+- `idle`: prolonged silence or tonearm lift has occurred, or consecutive identification failures have returned the app to the visualizer state.
+
+## Silence & Playback Supervision
+
+`PlaybackSupervisor` evaluates transitions detected by `SilenceDetector` against track metrics:
+
+```mermaid
+stateDiagram-v2
+    [*] --> idle
+    idle --> listening: Signal detected
+    listening --> identifying: Sustained clean signal (>= min_sample_seconds)
+    identifying --> playing: Track recognized
+    identifying --> listening: Recognition failed (1-2 attempts)
+    identifying --> idle: Recognition failed (>= 3 attempts)
+
+    state playing {
+        [*] --> ActivePlayback
+        ActivePlayback --> MidSongBreak: Silence detected (remaining > end_margin)
+        MidSongBreak --> ActivePlayback: Signal returns (background verification)
+        ActivePlayback --> TrackBoundary: Silence detected (remaining <= end_margin)
+    }
+
+    MidSongBreak --> idle: Silence >= break_max_seconds (needle lifted)
+    MidSongBreak --> idle: Elapsed >= duration + end_margin (song ended)
+    TrackBoundary --> idle: Silence >= idle_timeout_seconds
+    TrackBoundary --> listening: Signal returns (discard track, identify next)
+```
+
+### Silence Classification Rules
+
+1. **Mid-song Break**:
+   - Occurs when silence begins while remaining playback time is greater than `recognition.end_margin_seconds` (or when duration is unknown).
+   - State remains `playing`. Lyrics remain on screen and `elapsed_seconds` continues to advance monotonically.
+   - If silence exceeds `recognition.break_max_seconds`, the supervisor reclassifies the silence as a lifted needle, clears the track, and returns to `idle`.
+   - When signal returns, a non-intrusive **background verification** is triggered. The status remains `playing` (no transition to `identifying`).
+   - If the same track is confirmed, playback offset is only adjusted if detected drift exceeds 1.5 seconds.
+   - If a different track is detected, a second sample is requested for confirmation before switching tracks.
+   - A manually locked track (`locked`) is never replaced by background verification.
+
+2. **Track Boundary**:
+   - Occurs when silence begins within `recognition.end_margin_seconds` of the track's known duration, or after elapsed time has passed duration.
+   - When signal returns, the old track is discarded, status transitions to `listening`, an `idle` event is emitted, and identification is scheduled as soon as clean audio is available.
+   - If silence persists past `recognition.idle_timeout_seconds`, status transitions to `idle`.
 
 ## HTTP API
 

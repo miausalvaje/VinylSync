@@ -62,7 +62,37 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> dict[str, 
         config.setdefault("recognition", {})
         config["recognition"] = _deep_merge(config["recognition"], cleaned)
 
+    return validate_config(config)
+
+
+def validate_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Validate configuration values and relationships."""
+    audio = config.get("audio", {})
+    if "sample_rate" in audio and float(audio["sample_rate"]) <= 0:
+        raise ValueError("audio.sample_rate must be positive.")
+    if "buffer_seconds" in audio and float(audio["buffer_seconds"]) <= 0:
+        raise ValueError("audio.buffer_seconds must be positive.")
+
+    recognition = config.get("recognition", {})
+    positive_recognition_keys = (
+        "interval_seconds",
+        "min_signal_seconds",
+        "track_gap_seconds",
+        "idle_timeout_seconds",
+        "min_sample_seconds",
+        "break_max_seconds",
+        "end_margin_seconds",
+    )
+    for key in positive_recognition_keys:
+        if key in recognition and float(recognition[key]) <= 0:
+            raise ValueError(f"recognition.{key} must be positive.")
+
+    track_gap = float(recognition.get("track_gap_seconds", 1.5))
+    break_max = float(recognition.get("break_max_seconds", 10.0))
+    if break_max < track_gap:
+        raise ValueError("recognition.break_max_seconds must be >= recognition.track_gap_seconds.")
+
     return config
 
 
-__all__ = ["DEFAULT_CONFIG_PATH", "load_config"]
+__all__ = ["DEFAULT_CONFIG_PATH", "load_config", "validate_config"]

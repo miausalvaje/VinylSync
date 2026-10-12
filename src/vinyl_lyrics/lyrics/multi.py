@@ -85,6 +85,7 @@ class MultiProviderLyricsClient:
     async def _safe_kugou_search(self, query: str) -> list[dict[str, Any]]:
         try:
             candidates = await self.kugou.search(query)
+
             # Populate syncedLyrics for top 4 Kugou candidates
             async def fetch_content(c: dict[str, Any]) -> dict[str, Any]:
                 try:

@@ -33,6 +33,13 @@ from vinyl_lyrics.server.security import (
 )
 from vinyl_lyrics.settings import SettingsStore, UserSettings
 from vinyl_lyrics.state.player import PlayerState
+from vinyl_lyrics.state.supervisor import (
+    ApplyTrack,
+    BroadcastEvent,
+    PlaybackSupervisor,
+    StartRecognition,
+    SupervisorAction,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -82,18 +89,28 @@ class ApplicationRuntime:
         self.spectrum = SpectrumAnalyzer(self.capture.sample_rate)
         self.clients: set[Any] = set()
         self.spectrum_clients: set[Any] = set()
-        self.status = "idle" if self.capture.source is not None else "no_source"
-        self.locked = False
-        self.failed_attempts = 0
+        self._status = "idle" if self.capture.source is not None else "no_source"
+        self._locked = False
+        self._failed_attempts = 0
+        self._next_recognition_at_val = 0.0
+        self._signal_resumed_at_val: float | None = None
+        self._track_gap_pending_val = False
+        self.supervisor = PlaybackSupervisor(
+            player=self.player,
+            clock=time.monotonic,
+            idle_timeout_seconds=self.idle_timeout_seconds,
+            min_sample_seconds=self.min_sample_seconds,
+            track_gap_seconds=float(recognition.get("track_gap_seconds", 1.5)),
+            break_max_seconds=float(recognition.get("break_max_seconds", 10.0)),
+            end_margin_seconds=float(recognition.get("end_margin_seconds", 10.0)),
+            status=self._status,
+        )
         self._task: asyncio.Task[None] | None = None
         self._control_task: asyncio.Task[None] | None = None
         self._spectrum_task: asyncio.Task[None] | None = None
         self._recognition_task: asyncio.Task[None] | None = None
         self._recognition_in_progress = False
-        self._next_recognition_at = 0.0
         self._last_diagnostics_at = 0.0
-        self._signal_resumed_at: float | None = None
-        self._track_gap_pending = False
         self._last_metrics = AudioMetrics(0.0, 0.0, -120.0, tuple([0.0] * 64))
         logger.info(
             "Configured audio source: %s (%s), recognizer: %s",
@@ -101,6 +118,115 @@ class ApplicationRuntime:
             self.capture.source_info.source_id,
             type(self.recognizer).__name__,
         )
+
+    @property
+    def status(self) -> str:
+        if getattr(self, "supervisor", None) is not None:
+            return self.supervisor.status
+        return getattr(self, "_status", "idle")
+
+    @status.setter
+    def status(self, value: str) -> None:
+        self._status = value
+        if getattr(self, "supervisor", None) is not None:
+            self.supervisor.status = value
+
+    @property
+    def locked(self) -> bool:
+        if getattr(self, "supervisor", None) is not None:
+            return self.supervisor.locked
+        return getattr(self, "_locked", False)
+
+    @locked.setter
+    def locked(self, value: bool) -> None:
+        self._locked = value
+        if getattr(self, "supervisor", None) is not None:
+            self.supervisor.locked = value
+
+    @property
+    def failed_attempts(self) -> int:
+        if getattr(self, "supervisor", None) is not None:
+            return self.supervisor.failed_attempts
+        return getattr(self, "_failed_attempts", 0)
+
+    @failed_attempts.setter
+    def failed_attempts(self, value: int) -> None:
+        self._failed_attempts = value
+        if getattr(self, "supervisor", None) is not None:
+            self.supervisor.failed_attempts = value
+
+    @property
+    def _next_recognition_at(self) -> float:
+        if getattr(self, "supervisor", None) is not None:
+            return self.supervisor.next_recognition_at
+        return getattr(self, "_next_recognition_at_val", 0.0)
+
+    @_next_recognition_at.setter
+    def _next_recognition_at(self, value: float) -> None:
+        self._next_recognition_at_val = value
+        if getattr(self, "supervisor", None) is not None:
+            self.supervisor.next_recognition_at = value
+
+    @property
+    def _signal_resumed_at(self) -> float | None:
+        if getattr(self, "supervisor", None) is not None:
+            return self.supervisor.signal_resumed_at
+        return getattr(self, "_signal_resumed_at_val", None)
+
+    @_signal_resumed_at.setter
+    def _signal_resumed_at(self, value: float | None) -> None:
+        self._signal_resumed_at_val = value
+        if getattr(self, "supervisor", None) is not None:
+            self.supervisor.signal_resumed_at = value
+
+    @property
+    def _track_gap_pending(self) -> bool:
+        if getattr(self, "supervisor", None) is not None:
+            return self.supervisor.track_gap_pending
+        return getattr(self, "_track_gap_pending_val", False)
+
+    @_track_gap_pending.setter
+    def _track_gap_pending(self, value: bool) -> None:
+        self._track_gap_pending_val = value
+        if getattr(self, "supervisor", None) is not None:
+            self.supervisor.track_gap_pending = value
+
+    def _ensure_supervisor(self) -> PlaybackSupervisor:
+        if getattr(self, "supervisor", None) is None:
+            self.supervisor = PlaybackSupervisor(
+                player=getattr(self, "player", None) or PlayerState(),
+                status=getattr(self, "_status", "listening"),
+            )
+            self.supervisor.failed_attempts = getattr(self, "_failed_attempts", 0)
+            self.supervisor.next_recognition_at = getattr(self, "_next_recognition_at_val", 0.0)
+        return self.supervisor
+
+    async def _execute_actions(self, actions: list[SupervisorAction]) -> None:
+        for action in actions:
+            if isinstance(action, StartRecognition):
+                if (
+                    action.cancel_current
+                    and self._recognition_task is not None
+                    and not self._recognition_task.done()
+                ):
+                    task = self._recognition_task
+                    self._recognition_task = None
+                    self._recognition_in_progress = False
+                    task.cancel()
+                if self._recognition_task is None or self._recognition_task.done():
+                    self._recognition_task = asyncio.create_task(
+                        self.recognize_once(
+                            since=action.since,
+                            min_sample_seconds=action.min_sample_seconds,
+                            background=action.background,
+                        )
+                    )
+            elif isinstance(action, BroadcastEvent):
+                payload = action.payload or {"event": action.event, **self.public_state()}
+                await self.broadcast(payload)
+            elif isinstance(action, ApplyTrack):
+                self._apply_track(action.track, locked=action.locked)
+                await self._load_lyrics(action.track)
 
     def public_state(self) -> dict[str, Any]:
         """Return the complete state event payload."""
@@ -228,6 +354,7 @@ class ApplicationRuntime:
         self,
         since: float | None = None,
         min_sample_seconds: float = 0.0,
+        background: bool = False,
     ) -> None:
         """Recognize the current buffered window."""
         if self._recognition_in_progress:
@@ -236,35 +363,31 @@ class ApplicationRuntime:
         if now < self._next_recognition_at:
             return
         self._recognition_in_progress = True
-        self.status = "identifying"
+        sup = self._ensure_supervisor()
+        actions = sup.handle_recognition_start(background=background)
         logger.info(
             "Starting recognition: source=%s, samples=%d, level=%.1f dBFS",
             getattr(getattr(self.capture, "source_info", None), "source_id", "unknown"),
             getattr(self.capture, "_received_samples", 0),
             getattr(getattr(self, "_last_metrics", None), "dbfs", -120.0),
         )
-        await self.broadcast()
+        await self._execute_actions(actions)
         try:
             snapshot = self.capture.recognition_snapshot(
                 since=since,
                 min_seconds=min_sample_seconds,
             )
             if snapshot is None:
-                self.status = "listening"
+                actions = sup.handle_recognition_no_snapshot(background=background)
+                await self._execute_actions(actions)
                 return
             track = await self.recognizer.recognize(snapshot.wav_bytes)
             if track is not None and track.offset_seconds is not None:
                 track.offset_seconds += time.monotonic() - snapshot.sample_start_monotonic
             if track is None:
                 logger.info("Recognition returned no track.")
-                self.failed_attempts += 1
-                self.status = "idle" if self.failed_attempts >= 3 else "listening"
-                retry_delays = (8.0, 16.0, 30.0)
-                self._next_recognition_at = (
-                    time.monotonic()
-                    + retry_delays[min(self.failed_attempts - 1, len(retry_delays) - 1)]
-                )
-                await self.broadcast({"event": self.status, **self.public_state()})
+                actions = sup.handle_recognition_no_track(background=background)
+                await self._execute_actions(actions)
                 return
             logger.info(
                 "Track recognized: %s - %s (offset=%s)",
@@ -272,26 +395,15 @@ class ApplicationRuntime:
                 track.title,
                 track.offset_seconds,
             )
-            self.failed_attempts = 0
-            self._track_gap_pending = False
-            self._signal_resumed_at = None
-            self._apply_track(track, locked=False)
-            await self._load_lyrics(track)
-            self.status = "playing"
-            self._next_recognition_at = time.monotonic() + self.player.reidentify_interval
-            await self.broadcast({"event": "track", **self.public_state()})
+            actions = sup.handle_recognition_success(track, background=background)
+            await self._execute_actions(actions)
+        except asyncio.CancelledError:
+            logger.info("Recognition task cancelled.")
+            raise
         except (OSError, RuntimeError, ValueError, httpx.HTTPError) as error:
-            self.status = "idle"
-            self.failed_attempts += 1
-            retry_delays = (8.0, 16.0, 30.0)
-            self._next_recognition_at = (
-                time.monotonic()
-                + retry_delays[min(self.failed_attempts - 1, len(retry_delays) - 1)]
-            )
             logger.exception("Recognition failed: %s", error)
-            error_payload = self.public_state()
-            error_payload.update({"event": "error", "message": str(error)})
-            await self.broadcast(error_payload)
+            actions = sup.handle_recognition_error(error, background=background)
+            await self._execute_actions(actions)
         finally:
             self._recognition_in_progress = False
 
@@ -356,39 +468,13 @@ class ApplicationRuntime:
                 now = time.monotonic()
                 if self._recognition_task is not None and self._recognition_task.done():
                     self._recognition_task = None
-                if silence.became_active:
-                    self.failed_attempts = 0
-                    self._signal_resumed_at = now
-                    if self.status == "playing" or self.locked:
-                        self.player.current_track = None
-                        self.locked = False
-                        self.status = "listening"
-                        self._track_gap_pending = True
-                        await self.broadcast({"event": "idle", **self.public_state()})
-                if (
-                    silence.active
-                    and self.status in {"idle", "listening"}
-                    and self._recognition_task is None
-                    and now >= self._next_recognition_at
-                ):
-                    if self._track_gap_pending and self._signal_resumed_at is not None:
-                        if now - self._signal_resumed_at >= self.min_sample_seconds:
-                            self._recognition_task = asyncio.create_task(
-                                self.recognize_once(
-                                    since=self._signal_resumed_at,
-                                    min_sample_seconds=self.min_sample_seconds,
-                                )
-                            )
-                    else:
-                        self._recognition_task = asyncio.create_task(self.recognize_once())
-                elif silence.active and self.status == "playing" and not self.locked:
-                    if self.player.needs_reidentification() and now >= self._next_recognition_at:
-                        self._recognition_task = asyncio.create_task(self.recognize_once())
-                elif not silence.active and self.status == "playing":
-                    if silence.silent_for >= self.idle_timeout_seconds:
-                        self.locked = False
-                        self.status = "idle"
-                        await self.broadcast({"event": "idle", **self.public_state()})
+                actions = self._ensure_supervisor().handle_silence(
+                    silence,
+                    recognition_busy=(
+                        self._recognition_task is not None and not self._recognition_task.done()
+                    ),
+                )
+                await self._execute_actions(actions)
             except (OSError, RuntimeError, ValueError, httpx.HTTPError) as error:
                 self.status = "idle"
                 self._next_recognition_at = time.monotonic() + 8.0

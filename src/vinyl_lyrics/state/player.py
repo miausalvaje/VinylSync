@@ -33,6 +33,18 @@ class TrackState:
         now = time.monotonic() if reference_now is None else reference_now
         self.started_at_monotonic = now - self.offset_seconds
 
+    def remaining_seconds(self, now: float | None = None) -> float | None:
+        """Return remaining playback time, or None if duration is unknown."""
+        if self.duration is None:
+            return None
+        return self.duration - self.elapsed_seconds(now)
+
+    def is_past_end(self, margin: float = 0.0, now: float | None = None) -> bool:
+        """Return whether the track has played past its duration plus margin."""
+        if self.duration is None:
+            return False
+        return self.elapsed_seconds(now) > (self.duration + margin)
+
 
 @dataclass(slots=True)
 class PlayerState:
@@ -78,6 +90,18 @@ class PlayerState:
         if self.current_track is None:
             return 0.0
         return self.current_track.elapsed_seconds(now)
+
+    def remaining_seconds(self, now: float | None = None) -> float | None:
+        """Return the remaining playback time for the current track."""
+        if self.current_track is None:
+            return None
+        return self.current_track.remaining_seconds(now)
+
+    def is_past_end(self, margin: float = 0.0, now: float | None = None) -> bool:
+        """Return whether the current track has played past its duration plus margin."""
+        if self.current_track is None:
+            return False
+        return self.current_track.is_past_end(margin, now)
 
     def needs_reidentification(self, now: float | None = None) -> bool:
         """Whether the current track should be re-identified."""

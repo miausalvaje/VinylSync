@@ -18,8 +18,12 @@ recognition:
   interval_seconds: 45
   # Minimum sustained signal before a recognition attempt is triggered.
   min_signal_seconds: 1.0
-  # Silence duration required to treat a track boundary or gap as a new section.
+  # Minimum silence duration to consider that a pause occurred (does not discard the track on its own).
   track_gap_seconds: 1.5
+  # Maximum silence duration during a track before assuming playback has stopped.
+  break_max_seconds: 10
+  # Margin before track end to treat a silence as a track boundary.
+  end_margin_seconds: 10
   # Silence duration after which the player returns to the visualizer.
   idle_timeout_seconds: 20
   # Minimum new audio sample length before a recognition attempt can restart after silence.

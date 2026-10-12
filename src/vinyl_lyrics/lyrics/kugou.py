@@ -159,7 +159,7 @@ class KugouLyricsClient:
 
     async def search(self, query: str) -> list[dict[str, Any]]:
         """Search candidates for manual correction dialog."""
-        params = {
+        params: dict[str, str | int] = {
             "ver": 1,
             "man": "yes",
             "client": "pc",

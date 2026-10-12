@@ -69,9 +69,7 @@ class LRCLIBClient:
             or candidate.get("title")
         )
         candidate_artist = LRCLIBClient._normalize(
-            candidate.get("artistName")
-            or candidate.get("artist_name")
-            or candidate.get("artist")
+            candidate.get("artistName") or candidate.get("artist_name") or candidate.get("artist")
         )
         candidate_duration = LRCLIBClient._normalize_duration(
             candidate.get("duration") or candidate.get("duration_ms")
