@@ -1,11 +1,13 @@
 export function getAuthToken() {
-  return sessionStorage.getItem("vinylsync_token") || "";
+  return localStorage.getItem("vinylsync_token") || sessionStorage.getItem("vinylsync_token") || "";
 }
 
 export function setAuthToken(token) {
   if (token) {
+    localStorage.setItem("vinylsync_token", token.trim());
     sessionStorage.setItem("vinylsync_token", token.trim());
   } else {
+    localStorage.removeItem("vinylsync_token");
     sessionStorage.removeItem("vinylsync_token");
   }
 }
@@ -30,6 +32,8 @@ class StateStore {
     this.spectrumListeners = [];
     this.stateSocket = null;
     this.spectrumSocket = null;
+    this._stateTimer = null;
+    this._spectrumTimer = null;
   }
 
   onState(listener) {
@@ -46,11 +50,23 @@ class StateStore {
   }
 
   reconnect() {
+    clearTimeout(this._stateTimer);
+    clearTimeout(this._spectrumTimer);
     if (this.stateSocket) {
-      try { this.stateSocket.close(); } catch {}
+      try {
+        this.stateSocket.onclose = null;
+        this.stateSocket.onerror = null;
+        this.stateSocket.close();
+      } catch {}
+      this.stateSocket = null;
     }
     if (this.spectrumSocket) {
-      try { this.spectrumSocket.close(); } catch {}
+      try {
+        this.spectrumSocket.onclose = null;
+        this.spectrumSocket.onerror = null;
+        this.spectrumSocket.close();
+      } catch {}
+      this.spectrumSocket = null;
     }
     this.connectState();
     this.connectSpectrum();
@@ -87,12 +103,14 @@ class StateStore {
       if (event.code === 1008) {
         window.dispatchEvent(new CustomEvent("vinylsync:auth_required"));
       }
-      window.setTimeout(() => this.connectState(), 1500);
+      clearTimeout(this._stateTimer);
+      this._stateTimer = window.setTimeout(() => this.connectState(), 1500);
     };
     socket.onerror = () => socket.close();
   }
 
   connectSpectrum() {
+    clearTimeout(this._spectrumTimer);
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const token = getAuthToken();
     const url = `${protocol}//${location.host}/ws/spectrum`;
@@ -116,7 +134,10 @@ class StateStore {
         // Ignore non-JSON frames.
       }
     };
-    socket.onclose = () => window.setTimeout(() => this.connectSpectrum(), 1500);
+    socket.onclose = () => {
+      clearTimeout(this._spectrumTimer);
+      this._spectrumTimer = window.setTimeout(() => this.connectSpectrum(), 1500);
+    };
     socket.onerror = () => socket.close();
   }
 

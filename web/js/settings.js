@@ -210,47 +210,52 @@ export function setupSettings(store) {
     }
   });
 
-  // Load sources from server
-  fetchWithAuth("/api/sources")
-    .then((response) => response.ok ? response.json() : Promise.reject(new Error("Unable to load audio sources.")))
-    .then((sources) => {
-      sourceSelect.replaceChildren();
-      const serverSources = sources.filter((s) => s.type !== "browser");
-      if (!serverSources.length) {
-        sourceSelect.add(new Option("No local server audio devices", ""));
-        sourceSelect.disabled = true;
-        return;
-      }
-      serverSources.forEach((source) => {
-        sourceSelect.add(new Option(
-          `${source.type === "loopback" ? "System audio" : "Microphone / Line-in"} — ${source.name}`,
-          source.source_id,
-        ));
-      });
-    })
-    .catch((error) => showSettingsError(error.message));
+  function loadSources() {
+    fetchWithAuth("/api/sources")
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Unable to load audio sources.")))
+      .then((sources) => {
+        sourceSelect.replaceChildren();
+        const serverSources = sources.filter((s) => s.type !== "browser");
+        if (!serverSources.length) {
+          sourceSelect.add(new Option("No local server audio devices", ""));
+          sourceSelect.disabled = true;
+          return;
+        }
+        serverSources.forEach((source) => {
+          sourceSelect.add(new Option(
+            `${source.type === "loopback" ? "System audio" : "Microphone / Line-in"} — ${source.name}`,
+            source.source_id,
+          ));
+        });
+      })
+      .catch((error) => showSettingsError(error.message));
+  }
 
-  // Load user settings
-  fetchWithAuth("/api/settings")
-    .then((response) => response.json())
-    .then((payload) => {
-      Object.assign(settings, payload);
-      if (payload.source_id && payload.source_id !== "browser") {
-        sourceSelect.value = payload.source_id;
-        if (modeServer) modeServer.checked = true;
-        setMode("server");
-      } else if (payload.source_id === "browser") {
-        if (modeMic) modeMic.checked = true;
-        setMode("mic");
-      }
-      setValue("gain-slider", payload.gain_db, "gain-value", " dB");
-      setValue("threshold-slider", payload.silence_enter_dbfs, "threshold-value", " dBFS");
-      setValue("font-slider", payload.font_size, "font-value", "×");
-      document.documentElement.style.setProperty("--lyrics-scale", payload.font_size ?? 1);
-      updateOffsetDisplay();
-      updateThresholdMarker(payload.silence_enter_dbfs);
-    })
-    .catch((error) => showSettingsError(error.message));
+  function loadSettings() {
+    fetchWithAuth("/api/settings")
+      .then((response) => response.json())
+      .then((payload) => {
+        Object.assign(settings, payload);
+        if (payload.source_id && payload.source_id !== "browser") {
+          sourceSelect.value = payload.source_id;
+          if (modeServer) modeServer.checked = true;
+          setMode("server");
+        } else if (payload.source_id === "browser") {
+          if (modeMic) modeMic.checked = true;
+          setMode("mic");
+        }
+        setValue("gain-slider", payload.gain_db, "gain-value", " dB");
+        setValue("threshold-slider", payload.silence_enter_dbfs, "threshold-value", " dBFS");
+        setValue("font-slider", payload.font_size, "font-value", "×");
+        document.documentElement.style.setProperty("--lyrics-scale", payload.font_size ?? 1);
+        updateOffsetDisplay();
+        updateThresholdMarker(payload.silence_enter_dbfs);
+      })
+      .catch((error) => showSettingsError(error.message));
+  }
+
+  loadSources();
+  loadSettings();
 
   sourceSelect.addEventListener("change", () => save({ source_id: sourceSelect.value }));
   bindSlider("gain-slider", "gain_db", "gain-value", " dB");
@@ -432,6 +437,8 @@ export function setupSettings(store) {
 
   window.addEventListener("vinylsync:user_changed", (event) => {
     updateUserUI(event.detail);
+    loadSources();
+    loadSettings();
   });
 
   return { open, close };

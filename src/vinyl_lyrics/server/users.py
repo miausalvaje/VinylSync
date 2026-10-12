@@ -31,18 +31,33 @@ def hash_password(password: str, salt: str | None = None) -> str:
 
 
 def verify_password(password: str, hashed: str | None) -> bool:
-    """Verify password against pbkdf2 hash or raw sha256 hex."""
+    """Verify password against pbkdf2 hash, raw sha256 or sha512 hex."""
     if not hashed or not password:
         return False
-    parts = hashed.split("$")
-    if len(parts) == 3 and parts[0] == "pbkdf2:sha256:100000":
+    clean_hash = hashed.strip("\"' ")
+    parts = clean_hash.split("$")
+    if len(parts) == 3 and parts[0].startswith("pbkdf2:"):
+        subparts = parts[0].split(":")
+        algo = subparts[1] if len(subparts) > 1 else "sha256"
+        try:
+            iterations = int(subparts[2]) if len(subparts) > 2 else 100_000
+        except ValueError:
+            iterations = 100_000
         salt = parts[1]
-        expected = hash_password(password, salt)
-        return secrets.compare_digest(expected, hashed)
-    # Fallback to plain sha256 hex if provided in .env
-    if len(hashed) == 64 and all(c in "0123456789abcdefABCDEF" for c in hashed):
+        try:
+            expected_key = hashlib.pbkdf2_hmac(
+                algo, password.encode("utf-8"), salt.encode("utf-8"), iterations
+            ).hex()
+            return secrets.compare_digest(parts[2], expected_key)
+        except Exception:
+            return False
+    # Fallback to plain sha256 (64 hex chars) or sha512 (128 hex chars)
+    if len(clean_hash) == 64 and all(c in "0123456789abcdefABCDEF" for c in clean_hash):
         computed = hashlib.sha256(password.encode("utf-8")).hexdigest()
-        return secrets.compare_digest(computed.lower(), hashed.lower())
+        return secrets.compare_digest(computed.lower(), clean_hash.lower())
+    if len(clean_hash) == 128 and all(c in "0123456789abcdefABCDEF" for c in clean_hash):
+        computed = hashlib.sha512(password.encode("utf-8")).hexdigest()
+        return secrets.compare_digest(computed.lower(), clean_hash.lower())
     return False
 
 

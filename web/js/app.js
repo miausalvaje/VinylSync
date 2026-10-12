@@ -124,18 +124,25 @@ fetch("/api/health")
       const token = getAuthToken();
       if (!token) {
         openAuthDialog();
-      } else {
-        const meRes = await fetchWithAuth("/api/auth/me");
-        if (meRes.ok) {
-          const meData = await meRes.json();
-          if (meData.user) {
-            window.dispatchEvent(new CustomEvent("vinylsync:user_changed", { detail: meData.user }));
-          }
-        }
+        return;
       }
+      const meRes = await fetchWithAuth("/api/auth/me");
+      if (meRes.ok) {
+        const meData = await meRes.json();
+        if (meData.user) {
+          window.dispatchEvent(new CustomEvent("vinylsync:user_changed", { detail: meData.user }));
+        }
+        stateStore.connect();
+      } else {
+        openAuthDialog();
+      }
+    } else {
+      stateStore.connect();
     }
   })
-  .catch(() => {});
+  .catch(() => {
+    stateStore.connect();
+  });
 
 stateStore.onState((payload) => {
   const state = payload.state || "idle";
@@ -153,7 +160,6 @@ stateStore.onState((payload) => {
   if (state === "idle" || state === "listening" || state === "no_source") setView("visualizer");
 });
 
-stateStore.connect();
 startVisualizer(stateStore);
 setupLyricsSync(stateStore);
 setupBackground(stateStore);

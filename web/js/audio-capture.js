@@ -50,13 +50,15 @@ export class AudioCaptureManager {
   }
 
   getToken() {
-    return sessionStorage.getItem("vinylsync_token") || "";
+    return localStorage.getItem("vinylsync_token") || sessionStorage.getItem("vinylsync_token") || "";
   }
 
   setToken(token) {
     if (token) {
+      localStorage.setItem("vinylsync_token", token.trim());
       sessionStorage.setItem("vinylsync_token", token.trim());
     } else {
+      localStorage.removeItem("vinylsync_token");
       sessionStorage.removeItem("vinylsync_token");
     }
   }
