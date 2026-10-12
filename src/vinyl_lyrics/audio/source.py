@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -153,6 +154,108 @@ class WasapiLoopbackSource(AudioSource):
         self._callback = None
 
 
+class BrowserStreamSource(AudioSource):
+    """Audio source receiving PCM Int16 mono frames from a browser WebSocket client."""
+
+    def __init__(self, info: AudioSourceInfo, sample_rate: int) -> None:
+        self.info = info
+        self.sample_rate = sample_rate
+        self._callback: AudioCallback | None = None
+        self._lock = threading.Lock()
+        self._active = False
+        self._active_client_id: str | None = None
+        self._client_sample_rate = sample_rate
+        self._anchor_monotonic: float | None = None
+        self._total_samples_delivered = 0
+        self._last_received_monotonic: float | None = None
+
+    @property
+    def active_client_id(self) -> str | None:
+        with self._lock:
+            return self._active_client_id
+
+    def start(self, callback: AudioCallback) -> None:
+        with self._lock:
+            self._callback = callback
+            self._active = True
+
+    def stop(self) -> None:
+        with self._lock:
+            self._active = False
+            self._callback = None
+            self._active_client_id = None
+            self._anchor_monotonic = None
+            self._total_samples_delivered = 0
+            self._last_received_monotonic = None
+
+    def reset_stream(self, client_id: str | None, client_sample_rate: int) -> None:
+        """Reset the stream clock and configuration for a newly connected sender."""
+        with self._lock:
+            self._active_client_id = client_id
+            self._client_sample_rate = client_sample_rate
+            self._anchor_monotonic = None
+            self._total_samples_delivered = 0
+            self._last_received_monotonic = None
+
+    def current_stream_monotonic(self, now: float | None = None) -> float:
+        """Return the stream timestamp corresponding to the end of buffered samples."""
+        with self._lock:
+            current_now = time.monotonic() if now is None else now
+            if self._anchor_monotonic is None:
+                return current_now
+            return self._anchor_monotonic + (self._total_samples_delivered / self.sample_rate)
+
+    def feed_pcm16_frame(self, data: bytes, now: float | None = None) -> None:
+        """Process, resample, gap-fill, and deliver a binary PCM Int16 mono frame."""
+        with self._lock:
+            if not self._active or self._callback is None or not data:
+                return
+            pcm = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
+            if pcm.size == 0:
+                return
+
+            if self._client_sample_rate != self.sample_rate:
+                in_len = len(pcm)
+                out_len = int(round(in_len * (self.sample_rate / self._client_sample_rate)))
+                if out_len <= 0:
+                    return
+                x_in = np.linspace(0.0, 1.0, in_len, endpoint=False)
+                x_out = np.linspace(0.0, 1.0, out_len, endpoint=False)
+                samples = np.interp(x_out, x_in, pcm).astype(np.float32)
+            else:
+                samples = pcm
+
+            t_now = time.monotonic() if now is None else now
+            if self._anchor_monotonic is None:
+                self._anchor_monotonic = t_now
+                self._total_samples_delivered = 0
+            else:
+                t_stream = self._anchor_monotonic + (
+                    self._total_samples_delivered / self.sample_rate
+                )
+                delta = t_now - t_stream
+                # Gap filling: if delayed or dropped frames create a gap > 50ms, fill with silence
+                if delta > 0.05:
+                    missing_samples = int(round(delta * self.sample_rate))
+                    if missing_samples > 0:
+                        zeros = np.zeros(missing_samples, dtype=np.float32)
+                        self._callback(zeros)
+                        self._total_samples_delivered += missing_samples
+
+                # Drift correction: gently adjust anchor for small, subtle hardware clock drift
+                # Transient network bursts (drift < -0.05) must not move the anchor.
+                t_stream = self._anchor_monotonic + (
+                    self._total_samples_delivered / self.sample_rate
+                )
+                drift = t_now - t_stream
+                if 0.005 < abs(drift) <= 0.05:
+                    self._anchor_monotonic += 0.005 * drift
+
+            self._callback(samples)
+            self._total_samples_delivered += len(samples)
+            self._last_received_monotonic = t_now
+
+
 def create_audio_source(
     info: AudioSourceInfo,
     sample_rate: int,
@@ -163,4 +266,6 @@ def create_audio_source(
         return SoundDeviceSource(info, sample_rate, channels)
     if info.source_type == "loopback":
         return WasapiLoopbackSource(info, sample_rate)
+    if info.source_type == "browser":
+        return BrowserStreamSource(info, sample_rate)
     raise ValueError(f"Unsupported audio source type: {info.source_type}")

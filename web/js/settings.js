@@ -1,8 +1,12 @@
+import { fetchWithAuth } from "./state.js";
+import { audioCaptureManager } from "./audio-capture.js";
+
 export function setupSettings(store) {
   const panel = document.querySelector("#settings-panel");
   const button = document.querySelector("#settings-button");
   const backdrop = document.querySelector("#settings-backdrop");
   const sourceSelect = document.querySelector("#source-select");
+  const micSelect = document.querySelector("#mic-select");
   const meter = document.querySelector("#level-meter");
   const thresholdMarker = document.querySelector("#threshold-marker");
   const settings = {};
@@ -17,6 +21,7 @@ export function setupSettings(store) {
     panel.setAttribute("aria-hidden", "false");
     backdrop?.classList.add("panel-backdrop--open");
     backdrop?.setAttribute("aria-hidden", "false");
+    refreshMicrophoneDevices();
   };
 
   const close = () => {
@@ -47,16 +52,176 @@ export function setupSettings(store) {
     }
   });
 
-  fetch("/api/sources")
+  // Check secure context
+  if (window.isSecureContext === false) {
+    const warning = document.querySelector("#secure-context-warning");
+    if (warning) warning.hidden = false;
+  }
+
+  // Audio source mode radios
+  const modeServer = document.querySelector("#mode-server");
+  const modeMic = document.querySelector("#mode-mic");
+  const modeDisplay = document.querySelector("#mode-display");
+  const serverGroup = document.querySelector("#server-source-group");
+  const micGroup = document.querySelector("#browser-mic-group");
+  const displayGroup = document.querySelector("#browser-display-group");
+
+  function setMode(mode) {
+    if (serverGroup) serverGroup.hidden = mode !== "server";
+    if (micGroup) micGroup.hidden = mode !== "mic";
+    if (displayGroup) displayGroup.hidden = mode !== "display";
+
+    if (mode === "server") {
+      if (audioCaptureManager.isCapturing) {
+        audioCaptureManager.stop();
+      }
+      if (sourceSelect.value) {
+        save({ source_id: sourceSelect.value });
+      }
+    } else if (mode === "mic") {
+      refreshMicrophoneDevices();
+    }
+  }
+
+  modeServer?.addEventListener("change", () => modeServer.checked && setMode("server"));
+  modeMic?.addEventListener("change", () => modeMic.checked && setMode("mic"));
+  modeDisplay?.addEventListener("change", () => modeDisplay.checked && setMode("display"));
+
+  async function refreshMicrophoneDevices() {
+    if (!micSelect) return;
+    const devices = await audioCaptureManager.getAudioInputDevices();
+    micSelect.replaceChildren();
+    if (!devices.length) {
+      micSelect.add(new Option("Default microphone", ""));
+    } else {
+      devices.forEach((dev, idx) => {
+        micSelect.add(new Option(dev.label || `Microphone ${idx + 1}`, dev.deviceId));
+      });
+    }
+  }
+
+  // Browser capture buttons
+  const startMicBtn = document.querySelector("#start-mic-btn");
+  const stopMicBtn = document.querySelector("#stop-mic-btn");
+  const startDisplayBtn = document.querySelector("#start-display-btn");
+  const stopDisplayBtn = document.querySelector("#stop-display-btn");
+  const takeoverBtn = document.querySelector("#takeover-btn");
+
+  startMicBtn?.addEventListener("click", async () => {
+    try {
+      await audioCaptureManager.startMicrophone(micSelect?.value || null);
+    } catch (err) {
+      showSettingsError(err.message);
+    }
+  });
+
+  stopMicBtn?.addEventListener("click", () => audioCaptureManager.stop());
+
+  startDisplayBtn?.addEventListener("click", async () => {
+    try {
+      await audioCaptureManager.startDisplayAudio();
+    } catch (err) {
+      showSettingsError(err.message);
+    }
+  });
+
+  stopDisplayBtn?.addEventListener("click", () => audioCaptureManager.stop());
+
+  takeoverBtn?.addEventListener("click", () => audioCaptureManager.requestTakeover());
+
+  // Capturer status handling
+  function updateCapturerUI(capturer) {
+    const hasCapturer = Boolean(capturer?.has_capturer);
+    const capturerId = capturer?.capturer_id;
+    const isMe = hasCapturer && capturerId === audioCaptureManager.clientId;
+
+    const hudBanner = document.querySelector("#capturer-banner");
+    const hudText = document.querySelector("#capturer-banner-text");
+    const hudBtn = document.querySelector("#capturer-banner-btn");
+
+    const statusBox = document.querySelector("#browser-capture-status");
+    const statusText = document.querySelector("#capture-status-text");
+    const takeoverButton = document.querySelector("#takeover-btn");
+
+    if (isMe) {
+      if (hudBanner) {
+        hudBanner.hidden = false;
+        hudText.textContent = "Capturing from this browser";
+        hudBtn.textContent = "Stop";
+        hudBtn.onclick = () => audioCaptureManager.stop();
+      }
+      if (statusBox) {
+        statusBox.hidden = false;
+        statusText.textContent = "This browser is currently capturing audio";
+        if (takeoverButton) takeoverButton.hidden = true;
+      }
+      if (stopMicBtn) stopMicBtn.hidden = audioCaptureManager.mode !== "mic";
+      if (startMicBtn) startMicBtn.hidden = audioCaptureManager.mode === "mic";
+      if (stopDisplayBtn) stopDisplayBtn.hidden = audioCaptureManager.mode !== "display";
+      if (startDisplayBtn) startDisplayBtn.hidden = audioCaptureManager.mode === "display";
+    } else if (hasCapturer) {
+      if (hudBanner) {
+        hudBanner.hidden = false;
+        hudText.textContent = "Another device is capturing audio";
+        hudBtn.textContent = "Take over";
+        hudBtn.onclick = () => audioCaptureManager.requestTakeover();
+      }
+      if (statusBox) {
+        statusBox.hidden = false;
+        statusText.textContent = "Another device is currently capturing audio";
+        if (takeoverButton) {
+          takeoverButton.hidden = false;
+          takeoverButton.onclick = () => audioCaptureManager.requestTakeover();
+        }
+      }
+      if (stopMicBtn) stopMicBtn.hidden = true;
+      if (startMicBtn) startMicBtn.hidden = false;
+      if (stopDisplayBtn) stopDisplayBtn.hidden = true;
+      if (startDisplayBtn) startDisplayBtn.hidden = false;
+    } else {
+      if (hudBanner) hudBanner.hidden = true;
+      if (statusBox) statusBox.hidden = true;
+      if (stopMicBtn) stopMicBtn.hidden = true;
+      if (startMicBtn) startMicBtn.hidden = false;
+      if (stopDisplayBtn) stopDisplayBtn.hidden = true;
+      if (startDisplayBtn) startDisplayBtn.hidden = false;
+    }
+  }
+
+  store.onState((payload) => {
+    updateCapturerUI(payload.capturer);
+    const source = payload.source;
+    if (source && source.source_id === "browser" && !modeMic?.checked && !modeDisplay?.checked) {
+      // If server is using browser source, sync mode if not capturing locally
+      if (audioCaptureManager.isCapturing) {
+        if (audioCaptureManager.mode === "mic" && modeMic) modeMic.checked = true;
+        if (audioCaptureManager.mode === "display" && modeDisplay) modeDisplay.checked = true;
+      }
+    }
+  });
+
+  audioCaptureManager.onStateChange((state, detail) => {
+    if (state === "capturing") {
+      updateCapturerUI({ has_capturer: true, capturer_id: audioCaptureManager.clientId });
+    } else if (state === "idle") {
+      updateCapturerUI({ has_capturer: false, capturer_id: null });
+    } else if (state === "error") {
+      showSettingsError(detail.message || "Capture error");
+    }
+  });
+
+  // Load sources from server
+  fetchWithAuth("/api/sources")
     .then((response) => response.ok ? response.json() : Promise.reject(new Error("Unable to load audio sources.")))
     .then((sources) => {
       sourceSelect.replaceChildren();
-      if (!sources.length) {
-        sourceSelect.add(new Option("No audio sources available", ""));
+      const serverSources = sources.filter((s) => s.type !== "browser");
+      if (!serverSources.length) {
+        sourceSelect.add(new Option("No local server audio devices", ""));
         sourceSelect.disabled = true;
         return;
       }
-      sources.forEach((source) => {
+      serverSources.forEach((source) => {
         sourceSelect.add(new Option(
           `${source.type === "loopback" ? "System audio" : "Microphone / Line-in"} — ${source.name}`,
           source.source_id,
@@ -65,11 +230,16 @@ export function setupSettings(store) {
     })
     .catch((error) => showSettingsError(error.message));
 
-  fetch("/api/settings")
+  // Load user settings
+  fetchWithAuth("/api/settings")
     .then((response) => response.json())
     .then((payload) => {
       Object.assign(settings, payload);
-      sourceSelect.value = payload.source_id || "";
+      if (payload.source_id && payload.source_id !== "browser") {
+        sourceSelect.value = payload.source_id;
+        if (modeServer) modeServer.checked = true;
+        setMode("server");
+      }
       setValue("gain-slider", payload.gain_db, "gain-value", " dB");
       setValue("threshold-slider", payload.silence_enter_dbfs, "threshold-value", " dBFS");
       setValue("font-slider", payload.font_size, "font-value", "×");
@@ -132,7 +302,7 @@ export function setupSettings(store) {
 
   function save(patch) {
     Object.assign(settings, patch);
-    fetch("/api/settings", {
+    fetchWithAuth("/api/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
@@ -141,8 +311,10 @@ export function setupSettings(store) {
 
   function showSettingsError(message) {
     const error = document.querySelector("#settings-error");
-    error.textContent = message;
-    error.hidden = false;
+    if (error) {
+      error.textContent = message;
+      error.hidden = false;
+    }
   }
 
   return { open, close };

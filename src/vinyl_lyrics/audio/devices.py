@@ -54,14 +54,36 @@ def list_audio_sources() -> list[dict[str, Any]]:
                 audio.terminate()
         except (ImportError, OSError, RuntimeError):
             pass
+
+    has_default = any(source.get("default") for source in sources)
+    sources.append(
+        {
+            "source_id": "browser",
+            "name": "Browser audio stream",
+            "type": "browser",
+            "default": not has_default,
+        }
+    )
     return sources
 
 
 def resolve_source(source_id: str | None) -> AudioSourceInfo:
     """Resolve a stable source identifier or the default source."""
+    if source_id == "browser":
+        return AudioSourceInfo(
+            source_id="browser",
+            name="Browser audio stream",
+            source_type="browser",
+            available=True,
+        )
     sources = list_audio_sources()
     if not sources:
-        raise ValueError("No audio sources are available.")
+        return AudioSourceInfo(
+            source_id="browser",
+            name="Browser audio stream",
+            source_type="browser",
+            available=True,
+        )
     selected = (
         next(
             (source for source in sources if source["source_id"] == source_id),

@@ -1,3 +1,5 @@
+import { fetchWithAuth } from "./state.js";
+
 export function setupManualSearch(store) {
   const dialog = document.querySelector("#search-dialog");
   const input = document.querySelector("#track-search");
@@ -46,7 +48,7 @@ export function setupManualSearch(store) {
     controller = new AbortController();
     results.innerHTML = '<p class="search-status">Searching…</p>';
     try {
-      const response = await fetch(`/api/lyrics/search?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+      const response = await fetchWithAuth(`/api/lyrics/search?q=${encodeURIComponent(query)}`, { signal: controller.signal });
       if (!response.ok) throw new Error("Search failed.");
       candidates = await response.json();
       selected = 0;
@@ -70,7 +72,7 @@ export function setupManualSearch(store) {
   }
 
   async function choose(candidate) {
-    const response = await fetch("/api/track/override", {
+    const response = await fetchWithAuth("/api/track/override", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

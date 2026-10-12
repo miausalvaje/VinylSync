@@ -21,6 +21,10 @@
           <span id="connection-status" class="status-pill">Connecting…</span>
           <span id="source-label">Listening…</span>
         </div>
+        <div id="capturer-banner" class="capturer-banner" hidden>
+          <span id="capturer-banner-text">Capturing from this browser</span>
+          <button id="capturer-banner-btn" class="secondary-button" type="button">Stop</button>
+        </div>
         <div id="visualizer-message" class="visualizer-message">
           <img src="/favicon.svg" alt="" width="72" height="72">
           <p>Listening…</p>
@@ -55,8 +59,61 @@
       <aside id="settings-panel" class="side-panel" aria-hidden="true">
         <button class="panel-close" data-close-panel="settings-panel" type="button" aria-label="Close settings">×</button>
         <h2>Settings</h2>
-        <label for="source-select">Audio source</label>
-        <select id="source-select"></select>
+        <fieldset class="settings-fieldset">
+          <legend>Audio source</legend>
+          <div class="source-mode-options">
+            <label class="radio-option">
+              <input type="radio" name="source-mode" value="server" id="mode-server" checked>
+              <span>Server device</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="source-mode" value="mic" id="mode-mic">
+              <span>This browser — microphone / line-in</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="source-mode" value="display" id="mode-display">
+              <span>This browser — tab or system audio</span>
+            </label>
+          </div>
+
+          <div id="secure-context-warning" class="settings-warning" hidden>
+            ⚠️ Audio capture requires HTTPS or localhost. This page is running in an insecure context.
+          </div>
+
+          <!-- Server device options -->
+          <div id="server-source-group" class="source-subgroup">
+            <label for="source-select">Server audio device</label>
+            <select id="source-select"></select>
+          </div>
+
+          <!-- Browser Mic options -->
+          <div id="browser-mic-group" class="source-subgroup" hidden>
+            <label for="mic-select">Microphone / Line-in</label>
+            <select id="mic-select"></select>
+            <div class="capture-actions">
+              <button id="start-mic-btn" type="button" class="primary-button">Start capture</button>
+              <button id="stop-mic-btn" type="button" class="secondary-button" hidden>Stop capture</button>
+            </div>
+            <small class="settings-help">Keep this tab open while capturing audio.</small>
+          </div>
+
+          <!-- Browser Display audio options -->
+          <div id="browser-display-group" class="source-subgroup" hidden>
+            <div class="capture-actions">
+              <button id="start-display-btn" type="button" class="primary-button">Share audio & capture</button>
+              <button id="stop-display-btn" type="button" class="secondary-button" hidden>Stop capture</button>
+            </div>
+            <small class="settings-help">
+              System audio sharing is available in Chrome/Edge on desktop, and Windows when sharing the entire screen. Keep this tab open.
+            </small>
+          </div>
+
+          <div id="browser-capture-status" class="capture-status-box" hidden>
+            <span id="capture-status-text">Capturing from this browser</span>
+            <button id="takeover-btn" type="button" class="secondary-button" hidden>Take over</button>
+          </div>
+        </fieldset>
+
         <label for="gain-slider">Gain <output id="gain-value">0 dB</output></label>
         <input id="gain-slider" type="range" min="-30" max="30" step="0.5" value="0">
         <label for="threshold-slider">Silence threshold <output id="threshold-value">-48 dBFS</output></label>
@@ -82,6 +139,19 @@
           <label for="track-search">Search LRCLIB</label>
           <input id="track-search" type="search" autocomplete="off" placeholder="Artist or song title">
           <div id="search-results" class="search-results"></div>
+        </form>
+      </dialog>
+
+      <dialog id="auth-dialog" class="auth-dialog">
+        <form method="dialog" class="auth-form" id="auth-form">
+          <h2>Authentication required</h2>
+          <p class="auth-desc">This VinylSync server requires an access token.</p>
+          <label for="auth-token-input">Access token</label>
+          <input id="auth-token-input" type="password" autocomplete="current-password" placeholder="Enter token" required>
+          <div id="auth-error" class="auth-error" hidden>Invalid token. Please try again.</div>
+          <div class="dialog-actions">
+            <button type="submit" class="primary-button" id="auth-submit-btn">Unlock</button>
+          </div>
         </form>
       </dialog>
     </main>

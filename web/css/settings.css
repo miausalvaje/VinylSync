@@ -118,3 +118,130 @@
   margin-top: 1rem;
   color: #ff9ca3;
 }
+
+.settings-fieldset {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  padding: 1rem;
+  margin: 1.25rem 0;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.settings-fieldset legend {
+  font-weight: 600;
+  padding: 0 0.5rem;
+  color: #d7d9e0;
+}
+
+.source-mode-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+
+.radio-option {
+  display: flex !important;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  margin: 0 !important;
+  font-size: 0.95rem;
+  color: #e2e4ea;
+}
+
+.radio-option input[type="radio"] {
+  width: auto !important;
+  margin: 0 !important;
+  cursor: pointer;
+}
+
+.source-subgroup {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.capture-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.primary-button {
+  background: #3a5ccc;
+  color: #fff;
+  border: none;
+  padding: 0.6rem 1.2rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.primary-button:hover {
+  background: #4c6fe6;
+}
+
+.secondary-button {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 0.6rem 1.2rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.secondary-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.settings-help {
+  display: block;
+  font-size: 0.8rem;
+  color: #9da1b0;
+  margin-top: 0.5rem;
+  line-height: 1.4;
+}
+
+.settings-warning {
+  background: rgba(255, 180, 0, 0.12);
+  border: 1px solid rgba(255, 180, 0, 0.3);
+  color: #ffd875;
+  padding: 0.75rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  margin-top: 0.75rem;
+}
+
+.capture-status-box {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: rgba(58, 92, 204, 0.15);
+  border: 1px solid rgba(58, 92, 204, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.capturer-banner {
+  position: absolute;
+  top: 1rem;
+  right: 5rem;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 0.9rem;
+  background: rgba(23, 24, 30, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  color: #e2e4ea;
+}
+

@@ -119,7 +119,15 @@ class ContinuousAudioCapture:
         sample_seconds = len(samples) / self.sample_rate
         if sample_seconds < min_seconds:
             return None
-        end = self._last_audio_monotonic or time.monotonic()
+        if (
+            self.source is not None
+            and hasattr(self.source, "current_stream_monotonic")
+            and callable(self.source.current_stream_monotonic)
+            and getattr(self.source, "_anchor_monotonic", None) is not None
+        ):
+            end = self.source.current_stream_monotonic()
+        else:
+            end = self._last_audio_monotonic or time.monotonic()
         return RecognitionSnapshot(
             wav_bytes=self.samples_to_wav(samples, self.sample_rate),
             sample_start_monotonic=end - sample_seconds,

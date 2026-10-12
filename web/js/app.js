@@ -1,4 +1,4 @@
-import { stateStore } from "./state.js";
+import { stateStore, fetchWithAuth, getAuthToken, setAuthToken } from "./state.js";
 import { startVisualizer } from "./visualizer.js";
 import { setupLyricsSync } from "./lyrics-sync.js";
 import { setupBackground } from "./background.js";
@@ -10,6 +10,9 @@ const visualizerView = document.querySelector("#visualizer-view");
 const lyricsView = document.querySelector("#lyrics-view");
 const stateLabel = document.querySelector("#state-label");
 const identifying = document.querySelector("#identifying-indicator");
+const authDialog = document.querySelector("#auth-dialog");
+const authForm = document.querySelector("#auth-form");
+const authError = document.querySelector("#auth-error");
 let forcedView = false;
 
 function setView(name, manual = false) {
@@ -21,11 +24,53 @@ function setView(name, manual = false) {
   lyricsView.setAttribute("aria-hidden", String(!lyrics));
 }
 
+function openAuthDialog() {
+  if (authDialog && !authDialog.open) {
+    authDialog.showModal();
+  }
+}
+
+window.addEventListener("vinylsync:auth_required", openAuthDialog);
+
+authForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const token = document.querySelector("#auth-token-input")?.value || "";
+  setAuthToken(token);
+  try {
+    const response = await fetchWithAuth("/api/state");
+    if (response.ok) {
+      if (authError) authError.hidden = true;
+      authDialog?.close();
+      stateStore.reconnect();
+    } else {
+      if (authError) {
+        authError.hidden = false;
+        authError.textContent = "Invalid token. Please try again.";
+      }
+    }
+  } catch {
+    if (authError) {
+      authError.hidden = false;
+      authError.textContent = "Unable to connect to server.";
+    }
+  }
+});
+
+// Check if authentication is required on load
+fetch("/api/health")
+  .then((r) => r.json())
+  .then((data) => {
+    if (data.auth_required && !getAuthToken()) {
+      openAuthDialog();
+    }
+  })
+  .catch(() => {});
+
 stateStore.onState((payload) => {
   const state = payload.state || "idle";
   stateLabel.textContent = state === "playing" ? "Track identified" : state;
   identifying.hidden = state !== "identifying";
-  if (state === "no_source") stateLabel.textContent = "No audio source available";
+  if (state === "no_source") stateLabel.textContent = "Waiting for audio source…";
   if (state === "error") stateLabel.textContent = payload.message || "Server error";
   const track = payload.track;
   document.querySelector("#track-title").textContent = track?.title || "Waiting for track";
@@ -34,7 +79,7 @@ stateStore.onState((payload) => {
   document.querySelector("#track-lock").hidden = !locked;
   document.querySelector("#unlock-track").hidden = !locked;
   if (state === "playing") setView("lyrics");
-  if (state === "idle" || state === "listening") setView("visualizer");
+  if (state === "idle" || state === "listening" || state === "no_source") setView("visualizer");
 });
 
 stateStore.connect();
@@ -44,8 +89,9 @@ setupBackground(stateStore);
 setupFullscreen();
 setupSettings(stateStore);
 setupManualSearch(stateStore);
+
 document.querySelector("#unlock-track").addEventListener("click", async () => {
-  await fetch("/api/track/unlock", { method: "POST" });
+  await fetchWithAuth("/api/track/unlock", { method: "POST" });
 });
 
 let inactivityTimer;
@@ -54,7 +100,8 @@ function resetInactivity() {
   clearTimeout(inactivityTimer);
   const panelOpen = document.querySelector("#settings-panel")?.classList.contains("side-panel--open");
   const dialogOpen = document.querySelector("#search-dialog")?.open;
-  if (panelOpen || dialogOpen) return;
+  const authOpen = authDialog?.open;
+  if (panelOpen || dialogOpen || authOpen) return;
   inactivityTimer = setTimeout(() => document.body.classList.add("ui-idle"), 3000);
 }
 ["mousemove", "keydown", "touchstart"].forEach((eventName) => {

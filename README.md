@@ -136,6 +136,134 @@ Set `recognition.provider: audd` and provide `AUDD_API_TOKEN` in `.env`.
 
 > Experimental: the AudD adapter is present but still intentionally kept as a secondary implementation.
 
+## Server deployment (Proxmox LXC / headless)
+
+VinylSync can be deployed on a headless server or lightweight Proxmox LXC container without sound hardware. In this mode, the backend processes recognition, lyrics synchronization, and spectrum analysis in the cloud or home lab, while the web browser on the computer next to the turntable captures line-in or microphone audio and streams it to the server over a WebSocket (`/ws/audio`).
+
+### System requirements & installation
+
+On Debian / Ubuntu / Proxmox LXC:
+
+```bash
+sudo apt update && sudo apt install -y python3 python3-venv python3-pip libportaudio2 ffmpeg git
+git clone https://github.com/miausalvaje/VinylSync.git /opt/vinylsync
+cd /opt/vinylsync
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -e .
+cp .env.example .env
+```
+
+Set the authentication token in `.env`:
+
+```bash
+VINYLSYNC_AUTH_TOKEN="your-secure-random-token"
+```
+
+> [!CAUTION]
+> Never expose VinylSync to the local network or internet without setting `VINYLSYNC_AUTH_TOKEN`. Do not place authentication tokens in `config.yaml`.
+
+In [config.yaml](config.yaml), configure server binding and proxy trust:
+
+```yaml
+audio:
+  source_id: browser
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  allowed_hosts:
+    - vinylsync.local
+    - 192.168.1.50
+  trust_proxy: true
+  trusted_proxies:
+    - 127.0.0.1
+    - 192.168.1.0/24
+```
+
+### systemd service example
+
+Create `/etc/systemd/system/vinylsync.service`:
+
+```ini
+[Unit]
+Description=VinylSync Turntable Lyrics Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=vinylsync
+WorkingDirectory=/opt/vinylsync
+EnvironmentFile=/opt/vinylsync/.env
+ExecStart=/opt/vinylsync/.venv/bin/vinylsync
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now vinylsync
+```
+
+### Nginx reverse proxy with TLS & WebSockets
+
+Browsers strictly require a **Secure Context** (`https://` or `http://localhost`) to allow microphone access (`getUserMedia`) or tab/system audio capture (`getDisplayMedia`). An HTTPS reverse proxy is required when accessing the web UI remotely.
+
+Add this Nginx configuration (e.g. `/etc/nginx/sites-available/vinylsync`):
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name vinylsync.local;
+
+    ssl_certificate     /etc/ssl/certs/vinylsync.crt;
+    ssl_certificate_key /etc/ssl/private/vinylsync.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    # Static assets and REST API
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+    }
+
+    # WebSockets (state, spectrum stream, and browser audio stream)
+    location ~ ^/(ws|ws/spectrum|ws/audio)$ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+
+        proxy_read_timeout 3600s;
+        proxy_buffering off;
+    }
+}
+```
+
+### Browser audio capture considerations
+
+- **HTTPS requirement**: Web audio APIs (`getUserMedia` and `getDisplayMedia`) are disabled by modern browsers over plain HTTP, unless on `localhost`.
+- **System audio capture**: Sharing tab or desktop audio (`getDisplayMedia`) is supported by desktop Chromium browsers (Google Chrome, Microsoft Edge, Brave). In Windows, sharing whole-screen audio allows capturing the entire operating system line-in or player sound.
+- **Background tab throttling**: VinylSync uses `AudioWorklet` (which executes on the browser's dedicated real-time audio thread) and acquires a Screen Wake Lock and Web Lock. However, the browser tab capturing audio **must remain open**. Disable aggressive energy-saving or tab-sleeping extensions for the VinylSync tab.
+
 ## Tips for vinyl
 
 - **Signal connection**: Prefer the phono preamp or receiver line output instead of an ambient microphone. This produces a cleaner signal for recognition.

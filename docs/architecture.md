@@ -2,36 +2,69 @@
 
 ## Overview
 
-`VinylSync` is a local Python service with a static browser frontend. FastAPI serves the web UI, exposes HTTP endpoints, and streams status over WebSockets.
+`VinylSync` is a local Python service with a static browser frontend. FastAPI serves the web UI, exposes HTTP endpoints, and streams status over WebSockets. It supports both local physical audio hardware (soundcards, USB interfaces, WASAPI loopback) and remote browser-based audio capture over WebSockets for headless or server deployments.
 
 ## Modules
 
-- `audio`: discovers and manages input devices and optional Windows WASAPI loopback sources; it keeps a single continuous capture stream and a circular buffer of recent audio data.
+- `audio`: discovers and manages local input devices, optional Windows WASAPI loopback sources, and `BrowserStreamSource`; it keeps a single continuous capture stream and a circular buffer of recent audio data.
 - `audio.processing`: computes the FFT-based spectrum, RMS/peak metrics, windowed smoothing, and silence detection with hysteresis.
 - `recognition`: defines the provider contract and normalizes track metadata before the app updates state.
 - `lyrics`: queries LRCLIB, parses LRC text, and stores results in SQLite so the app can reuse them with a local cache.
 - `artwork`: resolves and prioritizes cover art from the recognizer data, then falls back to iTunes Search / Cover Art Archive.
-- `state`: maintains the active track, monotonic start time, drift tracking, and re-identification policy.
-- `server`: exposes the REST API and WebSocket updates used by the browser.
-- `web`: static HTML, CSS, and JavaScript for the fullscreen visualizer and lyrics experience.
+- `state`: maintains the active track, monotonic start time, drift tracking, and `PlaybackSupervisor` state transitions.
+- `server`: exposes the REST API, security middleware, and WebSocket connections (`/ws`, `/ws/spectrum`, `/ws/audio`).
+- `web`: static HTML, CSS, and JavaScript for the fullscreen visualizer, lyrics experience, and AudioWorklet streaming.
 
 ## Data flow
 
-1. The selected audio source streams mono, 44.1 kHz audio into a continuous circular buffer.
-2. The buffer is used for spectrum visualization, silence detection, and 8-second recognition windows.
-3. Detection logic only triggers a recognition call when there is sustained signal above the threshold for a configured minimum duration.
-4. The recognizer returns normalized `Track` metadata and optional offset information.
-5. `PlayerState` calculates the monotonic start time from the recognition offset and tracks drift during playback.
-6. LRCLIB is queried through a local cache and fallback search path before lyrics are exposed to the UI.
-7. State, track, source, idle, and error events are broadcast on `/ws`; the spectrum is streamed on `/ws/spectrum`.
-8. The browser renders the visualizer, active track, and lyric timeline.
+```mermaid
+flowchart LR
+    subgraph CaptureOptions[Audio Ingestion]
+        A1[Local hardware / Loopback]
+        A2[Browser AudioWorklet /ws/audio]
+    end
+    CaptureOptions --> B[ContinuousAudioCapture]
+    B --> C[SilenceDetector]
+    B --> D[SpectrumAnalyzer]
+    C --> E[PlaybackSupervisor]
+    E --> F[Recognition Provider]
+    F --> G[PlayerState]
+    G --> H[Lyrics & Cache]
+    G --> I[WebSocket State Stream]
+    D --> J[WebSocket Spectrum Stream]
+    H --> I
+    I --> K[Web Displays]
+```
+
+1. The selected audio source streams mono audio into a continuous circular buffer (`ContinuousAudioCapture`). When using the browser capture mode, an `AudioWorkletProcessor` collects 2048-sample Int16 PCM frames and sends them over `/ws/audio`. The backend resamples in-memory via NumPy to the internal sample rate (44.1 kHz).
+2. The buffer feeds spectrum visualization, silence detection, and 8-second recognition windows without duplicating pipeline logic.
+3. Clock synchronization for browser streams is anchored to the arrival of the first frame, tracking elapsed stream time from received sample counts. Lost frames or transmission gaps are zero-filled, while transient network bursts do not drift the calculated recognition timeline.
+4. Detection logic only triggers a recognition call when there is sustained signal above the threshold for a configured minimum duration.
+5. `PlaybackSupervisor` classifies silences as mid-song breaks, track boundaries, or tonearm lifts, controlling recognition triggers and backoff.
+6. The recognizer returns normalized `Track` metadata and optional offset information.
+7. LRCLIB is queried through a local cache and fallback search path before lyrics are exposed to the UI.
+8. State, track, source, capturer, idle, and error events are broadcast on `/ws`; the spectrum is streamed on `/ws/spectrum`.
 
 ## Runtime states
 
+- `no_source`: waiting for an audio source (e.g. server configured with `source_id: browser` with no active browser streamer connected).
 - `listening`: the app is actively monitoring audio, but no track has been identified yet.
 - `identifying`: an initial or post-boundary recognition request is in flight.
 - `playing`: a recognized track is active and lyrics are being displayed. During mid-song breaks, the state remains `playing` and the playback clock keeps running.
 - `idle`: prolonged silence or tonearm lift has occurred, or consecutive identification failures have returned the app to the visualizer state.
+
+## Browser audio streaming & Single-sender semantics
+
+- Endpoint: `/ws/audio`. Handshake expects JSON `{"type": "hello", "client_id": "...", "sample_rate": int, "channels": 1, "format": "s16le"}`.
+- Concurrency: Only one audio sender is active at a time. Other clients receive `{"type": "busy", "capturer_id": "..."}` and can request a handover with `{"type": "takeover"}`.
+- Rate limiting: Protected by a token bucket rate limiter (~2x nominal bandwidth with burst tolerance) and a maximum binary frame limit of 64 KB.
+- Switching sources: Selecting a server hardware device while a browser is streaming notifies and disconnects the browser with reason `server_device_selected`.
+
+## Security & Reverse Proxies
+
+- **Host & Origin validation**: Normalized hostname checking with proxy port awareness (accepts origins without port 80/443).
+- **Proxy trust**: `server.trust_proxy` is only applied when the immediate peer IP matches `server.trusted_proxies` (CIDR/IP whitelist). Untrusted proxy headers (`X-Forwarded-*`) are ignored to prevent spoofing.
+- **Token authentication**: Optional `VINYLSYNC_AUTH_TOKEN` environment variable. When set, all REST endpoints (except static files and health checks) require `Authorization: Bearer <token>`, and WebSockets require subprotocol (`vinylsync-auth.<token>`) or an initial authentication message. Brute force attempts are rate-limited per IP address.
 
 ## Silence & Playback Supervision
 
@@ -39,8 +72,8 @@
 
 ```mermaid
 stateDiagram-v2
-    [*] --> idle
-    idle --> listening: Signal detected
+    [*] --> no_source
+    no_source --> listening: Source connected / Streamer starts
     listening --> identifying: Sustained clean signal (>= min_sample_seconds)
     identifying --> playing: Track recognized
     identifying --> listening: Recognition failed (1-2 attempts)
@@ -58,39 +91,3 @@ stateDiagram-v2
     TrackBoundary --> idle: Silence >= idle_timeout_seconds
     TrackBoundary --> listening: Signal returns (discard track, identify next)
 ```
-
-### Silence Classification Rules
-
-1. **Mid-song Break**:
-   - Occurs when silence begins while remaining playback time is greater than `recognition.end_margin_seconds` (or when duration is unknown).
-   - State remains `playing`. Lyrics remain on screen and `elapsed_seconds` continues to advance monotonically.
-   - If silence exceeds `recognition.break_max_seconds`, the supervisor reclassifies the silence as a lifted needle, clears the track, and returns to `idle`.
-   - When signal returns, a non-intrusive **background verification** is triggered. The status remains `playing` (no transition to `identifying`).
-   - If the same track is confirmed, playback offset is only adjusted if detected drift exceeds 1.5 seconds.
-   - If a different track is detected, a second sample is requested for confirmation before switching tracks.
-   - A manually locked track (`locked`) is never replaced by background verification.
-
-2. **Track Boundary**:
-   - Occurs when silence begins within `recognition.end_margin_seconds` of the track's known duration, or after elapsed time has passed duration.
-   - When signal returns, the old track is discarded, status transitions to `listening`, an `idle` event is emitted, and identification is scheduled as soon as clean audio is available.
-   - If silence persists past `recognition.idle_timeout_seconds`, status transitions to `idle`.
-
-## HTTP API
-
-- `GET /api/sources` and `POST /api/source` manage the active audio source.
-- `GET /api/settings` and `PUT /api/settings` manage persistent settings.
-- `GET /api/lyrics/search` searches LRCLIB for manual correction.
-- `POST /api/track/override` locks a manually selected track.
-- `POST /api/track/unlock` re-enables automatic recognition.
-
-## Notes on source handling
-
-- Input sources are exposed as IDs like `input:0`.
-- Loopback sources are listed only on Windows when the platform supports them.
-- Source switching is hot-pluggable: the app handles device disappearance, failed starts, and gracefully returns to the idle state.
-
-## Current limitations
-
-- ACRCloud and AudD network implementations remain secondary and are intentionally not treated as the primary path.
-- Production polish for the browser UI is still being refined on top of the working architecture.
-- Live turntable validation is still the final confirmation step for real-world recognition quality.

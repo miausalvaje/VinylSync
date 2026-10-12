@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from vinyl_lyrics.audio.devices import list_audio_sources
 from vinyl_lyrics.server.models import TrackOverride
+from vinyl_lyrics.server.security import get_configured_auth_token
 from vinyl_lyrics.settings import UserSettings
 
 router = APIRouter()
@@ -18,9 +19,12 @@ WEB_ROOT = Path(__file__).resolve().parents[3] / "web"
 
 
 @router.get("/api/health")
-async def health() -> dict[str, str]:
+async def health() -> dict[str, Any]:
     """Return a basic service health response."""
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "auth_required": bool(get_configured_auth_token()),
+    }
 
 
 @router.get("/api/sources")

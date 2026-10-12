@@ -12,6 +12,13 @@ and the project follows [Semantic Versioning](https://semver.org/).
 - Initial open-source project structure.
 - Audio capture, recognition contracts, LRCLIB lookup, LRC parsing, caching,
   player state, and local FastAPI/WebSocket backend foundations.
+- `BrowserStreamSource` audio source implementation enabling headless and server deployments (e.g. Proxmox LXC) without local sound hardware.
+- WebSocket streaming endpoint `/ws/audio` with binary PCM Int16 support, JSON handshake, single-capturer takeover mechanism, 64 KB frame limits, and token bucket rate limiting.
+- Stream clock synchronization anchored to first arrival, with NumPy-based resampling, micro-drift correction, and automatic zero-filling for packet gaps.
+- Client ID generation and `capturer` state event broadcasts.
+- Frontend browser audio capture with `AudioWorklet` processor (no timers), Screen Wake Lock, Web Lock, and device selector (`getUserMedia` and `getDisplayMedia`).
+- Reverse proxy support with portless origin parsing, explicit `server.allowed_origins`, and spoofing-resistant `server.trusted_proxies` IP/CIDR filtering.
+- Optional token-based authentication (`VINYLSYNC_AUTH_TOKEN`) with constant-time comparison, rate-limited failed attempts, and browser unlock modal dialog.
 - `PlaybackSupervisor` orchestration extracting playback policy and state transitions with an injectable clock.
 - Silence classification: distinguishes between mid-song breaks, song transitions (`boundary`), and needle lifts (`idle`).
 - Track metrics in `TrackState` and `PlayerState`: `remaining_seconds()` and `is_past_end()`.

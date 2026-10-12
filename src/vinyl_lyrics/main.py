@@ -7,6 +7,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -19,6 +20,7 @@ from vinyl_lyrics.audio.processing import (
     SilenceDetector,
     SpectrumAnalyzer,
 )
+from vinyl_lyrics.audio.source import BrowserStreamSource
 from vinyl_lyrics.config import load_config
 from vinyl_lyrics.lyrics.cache import LyricsCache
 from vinyl_lyrics.lyrics.lrclib import LRCLIBClient, LyricResult
@@ -30,6 +32,7 @@ from vinyl_lyrics.server.security import (
     LocalSecurityMiddleware,
     allowed_hosts,
     allowed_origins,
+    get_configured_auth_token,
 )
 from vinyl_lyrics.settings import SettingsStore, UserSettings
 from vinyl_lyrics.state.player import PlayerState
@@ -46,6 +49,15 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
+
+
+@dataclass(slots=True)
+class AudioSenderSession:
+    """Active browser audio streaming session."""
+
+    websocket: Any
+    client_id: str
+    sample_rate: int
 
 
 class ApplicationRuntime:
@@ -89,7 +101,9 @@ class ApplicationRuntime:
         self.spectrum = SpectrumAnalyzer(self.capture.sample_rate)
         self.clients: set[Any] = set()
         self.spectrum_clients: set[Any] = set()
-        self._status = "idle" if self.capture.source is not None else "no_source"
+        self.active_audio_sender: AudioSenderSession | None = None
+        source_is_browser = self.capture.source_info.source_id == "browser"
+        self._status = "no_source" if (self.capture.source is None or source_is_browser) else "idle"
         self._locked = False
         self._failed_attempts = 0
         self._next_recognition_at_val = 0.0
@@ -118,6 +132,36 @@ class ApplicationRuntime:
             self.capture.source_info.source_id,
             type(self.recognizer).__name__,
         )
+
+    @property
+    def has_capturer(self) -> bool:
+        return self.active_audio_sender is not None
+
+    @property
+    def capturer_id(self) -> str | None:
+        return self.active_audio_sender.client_id if self.active_audio_sender else None
+
+    def capturer_state(self) -> dict[str, Any]:
+        return {
+            "has_capturer": self.has_capturer,
+            "capturer_id": self.capturer_id,
+        }
+
+    async def disconnect_audio_sender(self, reason: str = "disconnected") -> None:
+        if self.active_audio_sender is not None:
+            session = self.active_audio_sender
+            self.active_audio_sender = None
+            try:
+                await session.websocket.send_json({"type": "disconnected", "reason": reason})
+                await session.websocket.close(code=1000)
+            except Exception:
+                pass
+            if isinstance(self.capture.source, BrowserStreamSource):
+                self.capture.source.reset_stream(None, self.capture.sample_rate)
+            if self.capture.source_info.source_id == "browser":
+                self.status = "no_source"
+            await self.broadcast({"event": "capturer", **self.capturer_state()})
+            await self.broadcast(self.public_state())
 
     @property
     def status(self) -> str:
@@ -258,6 +302,10 @@ class ApplicationRuntime:
                 "source_id": self.capture.source_info.source_id,
                 "name": self.capture.source_info.name,
                 "type": self.capture.source_info.source_type,
+            },
+            "capturer": {
+                "has_capturer": self.has_capturer,
+                "capturer_id": self.capturer_id,
             },
         }
 
@@ -410,12 +458,20 @@ class ApplicationRuntime:
     async def apply_settings(self, settings: UserSettings) -> UserSettings:
         """Apply and persist settings without restarting the process."""
         source_changed = settings.source_id != self.settings.source_id
+        if (
+            source_changed
+            and settings.source_id != "browser"
+            and self.active_audio_sender is not None
+        ):
+            await self.disconnect_audio_sender(reason="server_device_selected")
         self.settings = self.settings_store.save(settings)
         self.silence.enter_dbfs = settings.silence_enter_dbfs
         self.silence.exit_dbfs = settings.silence_exit_dbfs
         self.player.set_manual_offset(settings.manual_offset_seconds)
         if source_changed and settings.source_id:
             self.capture.switch_source(settings.source_id)
+            if settings.source_id == "browser" and self.active_audio_sender is None:
+                self.status = "no_source"
             if self._control_task is None or self._control_task.done():
                 self._control_task = asyncio.create_task(self.loop())
                 self._task = self._control_task
@@ -535,26 +591,45 @@ def create_app(config: dict[str, Any] | None = None) -> FastAPI:
     settings = config or load_config()
     runtime = ApplicationRuntime(settings)
 
+    server_config = settings.get("server", {})
+    server_host = str(server_config.get("host", "127.0.0.1"))
+    server_port = int(server_config.get("port", 8000))
+    trust_proxy = bool(server_config.get("trust_proxy", False))
+    trusted_proxies = server_config.get("trusted_proxies")
+    extra_origins = server_config.get("allowed_origins")
+    hosts = allowed_hosts(server_host, server_config.get("allowed_hosts"))
+    origins = allowed_origins(hosts, server_port, extra_origins)
+
+    if server_host != "127.0.0.1" and not get_configured_auth_token():
+        logger.warning(
+            "Server is configured to listen on %s without an authentication token configured. "
+            "Set VINYLSYNC_AUTH_TOKEN to secure remote access.",
+            server_host,
+        )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.runtime = runtime
         app.state.allowed_hosts = hosts
-        app.state.allowed_origins = allowed_origins(hosts, server_port)
+        app.state.allowed_origins = origins
+        app.state.trust_proxy = trust_proxy
+        app.state.trusted_proxies = trusted_proxies
         await runtime.start()
         yield
         await runtime.stop()
 
-    server_config = settings.get("server", {})
-    server_host = str(server_config.get("host", "127.0.0.1"))
-    server_port = int(server_config.get("port", 8000))
-    hosts = allowed_hosts(server_host, server_config.get("allowed_hosts"))
     app = FastAPI(title="VinylSync", lifespan=lifespan)
+    app.state.runtime = runtime
     app.state.allowed_hosts = hosts
-    app.state.allowed_origins = allowed_origins(hosts, server_port)
+    app.state.allowed_origins = origins
+    app.state.trust_proxy = trust_proxy
+    app.state.trusted_proxies = trusted_proxies
     app.add_middleware(
         LocalSecurityMiddleware,
         hosts=hosts,
-        origins=allowed_origins(hosts, server_port),
+        origins=origins,
+        trust_proxy=trust_proxy,
+        trusted_proxies=trusted_proxies,
     )
     from vinyl_lyrics.server.api import router as api_router
     from vinyl_lyrics.server.ws import router as ws_router

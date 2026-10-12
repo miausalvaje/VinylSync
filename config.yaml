@@ -52,6 +52,13 @@ server:
   port: 8000
   # Extra hostnames permitted when exposing the app on a local network.
   allowed_hosts: []
+  # Enable trusting X-Forwarded-* headers (requires trusted_proxies to be populated).
+  trust_proxy: false
+  # Trusted reverse proxy IP addresses or CIDR networks (e.g., ["127.0.0.1", "::1"]).
+  trusted_proxies: []
+  # Explicit allowed origins (e.g. ["https://vinylsync.local", "http://my-turntable.lan"]).
+  allowed_origins: []
+  # Note: Do NOT store auth tokens here. Set the VINYLSYNC_AUTH_TOKEN environment variable or use a .env file.
 
 # UI defaults that are persisted in settings.json and override config.yaml at runtime.
 ui:
