@@ -170,7 +170,8 @@ class PlaybackSupervisor:
                     self.status = "listening"
 
         # 4. Sustained signal: schedule recognition
-        if silence.active:
+        already_scheduled = any(isinstance(a, StartRecognition) for a in actions)
+        if silence.active and not already_scheduled:
             if self.player.current_track is None and self.status in {"idle", "listening"}:
                 if not recognition_busy and now >= self.next_recognition_at:
                     if self.signal_resumed_at is not None:
