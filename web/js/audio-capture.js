@@ -190,7 +190,11 @@ export class AudioCaptureManager {
 
   async _setupAudioPipeline() {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    this.audioContext = new AudioContextClass();
+    try {
+      this.audioContext = new AudioContextClass({ sampleRate: 44100 });
+    } catch {
+      this.audioContext = new AudioContextClass();
+    }
     if (this.audioContext.state === "suspended") {
       await this.audioContext.resume();
     }

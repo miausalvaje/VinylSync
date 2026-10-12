@@ -228,7 +228,7 @@ def test_ws_audio_disconnect_transitions_to_no_source() -> None:
         assert app.state.runtime.status in ("listening", "idle")
 
     # Socket closed: runtime transitions to no_source
-    time.sleep(0.05)
+    client.get("/api/state")
     assert app.state.runtime.status == "no_source"
     assert app.state.runtime.has_capturer is False
 
@@ -364,3 +364,30 @@ def test_switch_to_server_device_disconnects_streamer() -> None:
         disc = json.loads(ws.receive_text())
         assert disc.get("type") == "disconnected"
         assert disc.get("reason") == "server_device_selected"
+
+
+def test_ws_audio_handshake_384khz() -> None:
+    app = create_app(
+        {
+            "audio": {"source_id": "browser", "sample_rate": 44100},
+            "server": {"host": "127.0.0.1", "port": 8000},
+        }
+    )
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws/audio") as ws:
+        ws.send_text(
+            json.dumps(
+                {
+                    "type": "hello",
+                    "client_id": "hi-res-client",
+                    "sample_rate": 384000,
+                    "channels": 1,
+                    "format": "s16le",
+                }
+            )
+        )
+        resp = json.loads(ws.receive_text())
+        assert resp.get("type") == "hello_ok"
+        assert app.state.runtime.status in ("listening", "idle")
+

@@ -169,7 +169,7 @@ async def audio_stream_endpoint(websocket: WebSocket) -> None:
     channels = int(hello.get("channels") or 0)
     fmt = str(hello.get("format") or "")
 
-    if not client_id or not (8000 <= sample_rate <= 96000) or channels != 1 or fmt != "s16le":
+    if not client_id or not (8000 <= sample_rate <= 384000) or channels != 1 or fmt != "s16le":
         await websocket.close(code=1003, reason="Invalid handshake parameters")
         return
 
