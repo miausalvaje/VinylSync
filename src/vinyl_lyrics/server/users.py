@@ -66,9 +66,7 @@ def get_server_secret() -> str:
     return generated
 
 
-def create_session_token(
-    username: str, role: str, expires_in: float = TOKEN_EXPIRY_SECONDS
-) -> str:
+def create_session_token(username: str, role: str, expires_in: float = TOKEN_EXPIRY_SECONDS) -> str:
     """Generate a signed HMAC-SHA256 JWT session token."""
     secret = get_server_secret()
     payload = {
@@ -82,14 +80,10 @@ def create_session_token(
         .decode()
         .rstrip("=")
     )
-    payload_b64 = (
-        base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
-    )
+    payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
     signing_input = f"{header_b64}.{payload_b64}".encode()
     signature = (
-        base64.urlsafe_b64encode(
-            hmac.new(secret.encode(), signing_input, hashlib.sha256).digest()
-        )
+        base64.urlsafe_b64encode(hmac.new(secret.encode(), signing_input, hashlib.sha256).digest())
         .decode()
         .rstrip("=")
     )
@@ -107,9 +101,7 @@ def verify_session_token(token: str | None) -> dict[str, Any] | None:
     secret = get_server_secret()
     signing_input = f"{header_b64}.{payload_b64}".encode()
     expected_sig = (
-        base64.urlsafe_b64encode(
-            hmac.new(secret.encode(), signing_input, hashlib.sha256).digest()
-        )
+        base64.urlsafe_b64encode(hmac.new(secret.encode(), signing_input, hashlib.sha256).digest())
         .decode()
         .rstrip("=")
     )
@@ -187,10 +179,16 @@ class UserManager:
             )
 
     def is_auth_enabled(self) -> bool:
-        """Return True if user authentication is active (admin configured in .env or users exist)."""
-        admin_user = (os.getenv("ADMIN_USERNAME") or os.getenv("VINYLSYNC_ADMIN_USER") or "").strip()
-        admin_hash = (os.getenv("ADMIN_PASSWORD_HASH") or os.getenv("VINYLSYNC_ADMIN_PASSWORD_HASH") or "").strip()
-        admin_pass = (os.getenv("ADMIN_PASSWORD") or os.getenv("VINYLSYNC_ADMIN_PASSWORD") or "").strip()
+        """Return True if auth is active (admin in env or users exist)."""
+        admin_user = (
+            os.getenv("ADMIN_USERNAME") or os.getenv("VINYLSYNC_ADMIN_USER") or ""
+        ).strip()
+        admin_hash = (
+            os.getenv("ADMIN_PASSWORD_HASH") or os.getenv("VINYLSYNC_ADMIN_PASSWORD_HASH") or ""
+        ).strip()
+        admin_pass = (
+            os.getenv("ADMIN_PASSWORD") or os.getenv("VINYLSYNC_ADMIN_PASSWORD") or ""
+        ).strip()
         if admin_user and (admin_hash or admin_pass):
             return True
         legacy_token = (os.getenv("VINYLSYNC_AUTH_TOKEN") or "").strip()
@@ -209,8 +207,12 @@ class UserManager:
 
         # 1. Check environment admin first
         env_admin = (os.getenv("ADMIN_USERNAME") or os.getenv("VINYLSYNC_ADMIN_USER") or "").strip()
-        env_hash = (os.getenv("ADMIN_PASSWORD_HASH") or os.getenv("VINYLSYNC_ADMIN_PASSWORD_HASH") or "").strip()
-        env_pass = (os.getenv("ADMIN_PASSWORD") or os.getenv("VINYLSYNC_ADMIN_PASSWORD") or "").strip()
+        env_hash = (
+            os.getenv("ADMIN_PASSWORD_HASH") or os.getenv("VINYLSYNC_ADMIN_PASSWORD_HASH") or ""
+        ).strip()
+        env_pass = (
+            os.getenv("ADMIN_PASSWORD") or os.getenv("VINYLSYNC_ADMIN_PASSWORD") or ""
+        ).strip()
 
         if env_admin and clean_user.casefold() == env_admin.casefold():
             if env_hash and verify_password(password, env_hash):
@@ -253,7 +255,8 @@ class UserManager:
         """List all invitations ordered by creation date descending."""
         with self._connect() as conn:
             cursor = conn.execute(
-                "SELECT code, created_by, created_at, used_by, used_at FROM invitations ORDER BY created_at DESC"
+                "SELECT code, created_by, created_at, used_by, used_at "
+                "FROM invitations ORDER BY created_at DESC"
             )
             return [
                 InviteRecord(
@@ -284,9 +287,7 @@ class UserManager:
 
         with self._connect() as conn:
             # Check user doesn't already exist
-            cursor = conn.execute(
-                "SELECT username FROM users WHERE username = ?", (clean_user,)
-            )
+            cursor = conn.execute("SELECT username FROM users WHERE username = ?", (clean_user,))
             if cursor.fetchone():
                 raise ValueError("Username already taken.")
 
@@ -302,7 +303,10 @@ class UserManager:
 
             # Atomically register user and consume invite
             conn.execute(
-                "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, 'user', ?)",
+                (
+                    "INSERT INTO users (username, password_hash, role, created_at) "
+                    "VALUES (?, ?, 'user', ?)"
+                ),
                 (clean_user, pw_hash, now),
             )
             conn.execute(
@@ -316,7 +320,8 @@ class UserManager:
         """Delete an unused invitation."""
         with self._connect() as conn:
             cursor = conn.execute(
-                "DELETE FROM invitations WHERE code = ? AND used_by IS NULL", (code.strip().upper(),)
+                "DELETE FROM invitations WHERE code = ? AND used_by IS NULL",
+                (code.strip().upper(),),
             )
             return cursor.rowcount > 0
 
