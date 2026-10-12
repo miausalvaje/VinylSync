@@ -158,6 +158,7 @@ def is_auth_required() -> bool:
     if get_configured_auth_token():
         return True
     from vinyl_lyrics.server.users import DEFAULT_USER_MANAGER
+
     return DEFAULT_USER_MANAGER.is_auth_enabled()
 
 
@@ -181,6 +182,7 @@ def verify_token(
 
     # 1. Check signed user session JWT token
     from vinyl_lyrics.server.users import verify_session_token
+
     session = verify_session_token(provided_token)
     if session is not None:
         limiter.record_success(client_ip)
@@ -250,9 +252,8 @@ class LocalSecurityMiddleware(BaseHTTPMiddleware):
 
         if is_auth_required():
             path = request.url.path
-            is_exempt = (
-                path in {"/", "/favicon.svg", "/api/health"}
-                or path.startswith(("/css/", "/js/", "/api/auth/"))
+            is_exempt = path in {"/", "/favicon.svg", "/api/health"} or path.startswith(
+                ("/css/", "/js/", "/api/auth/")
             )
             if not is_exempt:
                 client_ip = effective_client_ip(

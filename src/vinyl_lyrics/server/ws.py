@@ -14,7 +14,6 @@ from vinyl_lyrics.server.security import (
     effective_client_ip,
     extract_ws_subprotocol,
     extract_ws_subprotocol_token,
-    get_configured_auth_token,
     validate_websocket,
     verify_token,
 )
@@ -54,6 +53,7 @@ class AudioTokenBucket:
 async def authenticate_ws(websocket: WebSocket) -> bool:
     """Validate WebSocket authentication via subprotocol or first message."""
     from vinyl_lyrics.server.security import is_auth_required
+
     if not is_auth_required():
         return True
     peer_ip = effective_client_ip(
