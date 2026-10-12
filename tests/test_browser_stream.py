@@ -390,4 +390,3 @@ def test_ws_audio_handshake_384khz() -> None:
         resp = json.loads(ws.receive_text())
         assert resp.get("type") == "hello_ok"
         assert app.state.runtime.status in ("listening", "idle")
-

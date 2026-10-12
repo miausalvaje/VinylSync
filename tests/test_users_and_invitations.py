@@ -1,8 +1,6 @@
 """Tests for user authentication and invitation management."""
 
 import hashlib
-import os
-import secrets
 from pathlib import Path
 
 import pytest
