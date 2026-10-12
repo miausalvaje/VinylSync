@@ -40,7 +40,10 @@ tabLoginBtn?.addEventListener("click", () => {
   tabRegisterBtn.classList.remove("auth-tab--active");
   loginForm.hidden = false;
   registerForm.hidden = true;
+  loginForm.style.display = "flex";
+  registerForm.style.display = "none";
   if (loginError) loginError.hidden = true;
+  if (registerError) registerError.hidden = true;
 });
 
 tabRegisterBtn?.addEventListener("click", () => {
@@ -48,6 +51,9 @@ tabRegisterBtn?.addEventListener("click", () => {
   tabLoginBtn.classList.remove("auth-tab--active");
   registerForm.hidden = false;
   loginForm.hidden = true;
+  registerForm.style.display = "flex";
+  loginForm.style.display = "none";
+  if (loginError) loginError.hidden = true;
   if (registerError) registerError.hidden = true;
 });
 
@@ -66,6 +72,7 @@ loginForm?.addEventListener("submit", async (event) => {
     if (response.ok && data.token) {
       setAuthToken(data.token);
       if (loginError) loginError.hidden = true;
+      loginForm.reset();
       authDialog?.close();
       stateStore.reconnect();
       window.dispatchEvent(new CustomEvent("vinylsync:user_changed", { detail: data.user }));
@@ -99,6 +106,8 @@ registerForm?.addEventListener("submit", async (event) => {
     if (response.ok && data.token) {
       setAuthToken(data.token);
       if (registerError) registerError.hidden = true;
+      registerForm.reset();
+      loginForm.reset();
       authDialog?.close();
       stateStore.reconnect();
       window.dispatchEvent(new CustomEvent("vinylsync:user_changed", { detail: data.user }));

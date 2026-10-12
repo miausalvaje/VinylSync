@@ -325,18 +325,115 @@ export function setupSettings(store) {
     }
   }
 
-  // User session and invitations UI
+  // User session, users list, and invitations UI
   const userAccountSection = document.querySelector("#user-account-section");
   const loggedUserName = document.querySelector("#logged-user-name");
   const logoutBtn = document.querySelector("#logout-btn");
-  const adminInvitationsArea = document.querySelector("#admin-invitations-area");
+  const adminManagementArea = document.querySelector("#admin-management-area");
+  const usersList = document.querySelector("#users-list");
   const createInviteBtn = document.querySelector("#create-invite-btn");
   const invitationsList = document.querySelector("#invitations-list");
 
   let currentUser = null;
 
+  async function refreshUsers() {
+    if (!adminManagementArea || adminManagementArea.hidden || !usersList) return;
+    try {
+      const res = await fetchWithAuth("/api/users");
+      if (!res.ok) return;
+      const users = await res.json();
+      usersList.replaceChildren();
+      if (!users.length) {
+        const empty = document.createElement("p");
+        empty.className = "settings-help";
+        empty.textContent = "No registered users found.";
+        usersList.appendChild(empty);
+        return;
+      }
+      users.forEach((u) => {
+        const item = document.createElement("div");
+        item.className = "user-item";
+
+        const left = document.createElement("div");
+        left.className = "user-info";
+
+        const nameEl = document.createElement("div");
+        nameEl.className = "user-item-name";
+        nameEl.textContent = u.username;
+
+        const roleEl = document.createElement("span");
+        roleEl.className = `user-badge ${u.role === "admin" ? "user-badge--admin" : "user-badge--user"}`;
+        roleEl.textContent = u.role;
+        nameEl.appendChild(roleEl);
+
+        const statusEl = document.createElement("span");
+        statusEl.className = `user-badge ${u.is_blocked ? "user-badge--blocked" : "user-badge--active"}`;
+        statusEl.textContent = u.is_blocked ? "Blocked" : "Active";
+        nameEl.appendChild(statusEl);
+
+        left.appendChild(nameEl);
+
+        const metaEl = document.createElement("div");
+        metaEl.className = "user-item-meta";
+        metaEl.textContent = u.created_at ? `Created: ${new Date(u.created_at).toLocaleDateString()}` : "";
+        left.appendChild(metaEl);
+
+        const right = document.createElement("div");
+        right.className = "user-item-actions";
+
+        // Admin accounts shouldn't be blocked or deleted via UI
+        if (u.role !== "admin" && u.username !== currentUser?.username) {
+          const blockBtn = document.createElement("button");
+          blockBtn.type = "button";
+          blockBtn.className = u.is_blocked ? "user-btn-unblock" : "user-btn-block";
+          blockBtn.textContent = u.is_blocked ? "Unblock" : "Block";
+          blockBtn.title = u.is_blocked ? "Unblock user" : "Block user";
+          blockBtn.onclick = async () => {
+            const res = await fetchWithAuth(`/api/users/${encodeURIComponent(u.username)}/block`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ blocked: !u.is_blocked }),
+            });
+            if (res.ok) {
+              refreshUsers();
+            } else {
+              const err = await res.json().catch(() => ({}));
+              showSettingsError(err.detail || "Failed to update user status.");
+            }
+          };
+          right.appendChild(blockBtn);
+
+          const delBtn = document.createElement("button");
+          delBtn.type = "button";
+          delBtn.className = "user-btn-del";
+          delBtn.textContent = "Delete";
+          delBtn.title = "Delete user";
+          delBtn.onclick = async () => {
+            if (!confirm(`Are you sure you want to delete user "${u.username}"?`)) return;
+            const res = await fetchWithAuth(`/api/users/${encodeURIComponent(u.username)}`, {
+              method: "DELETE",
+            });
+            if (res.ok) {
+              refreshUsers();
+            } else {
+              const err = await res.json().catch(() => ({}));
+              showSettingsError(err.detail || "Failed to delete user.");
+            }
+          };
+          right.appendChild(delBtn);
+        }
+
+        item.appendChild(left);
+        item.appendChild(right);
+        usersList.appendChild(item);
+      });
+    } catch {
+      // Ignore
+    }
+  }
+
   async function refreshInvitations() {
-    if (!adminInvitationsArea || adminInvitationsArea.hidden) return;
+    if (!adminManagementArea || adminManagementArea.hidden || !invitationsList) return;
     try {
       const res = await fetchWithAuth("/api/invitations");
       if (!res.ok) return;
@@ -407,9 +504,10 @@ export function setupSettings(store) {
       if (loggedUserName) {
         loggedUserName.textContent = `${user.username} (${user.role})`;
       }
-      if (adminInvitationsArea) {
-        adminInvitationsArea.hidden = user.role !== "admin";
+      if (adminManagementArea) {
+        adminManagementArea.hidden = user.role !== "admin";
         if (user.role === "admin") {
+          refreshUsers();
           refreshInvitations();
         }
       }

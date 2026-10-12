@@ -149,6 +149,7 @@ class UserRecord:
     username: str
     role: str
     created_at: float
+    is_blocked: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,10 +186,16 @@ class UserManager:
                     username TEXT PRIMARY KEY COLLATE NOCASE,
                     password_hash TEXT NOT NULL,
                     role TEXT NOT NULL DEFAULT 'user',
-                    created_at REAL NOT NULL
+                    created_at REAL NOT NULL,
+                    is_blocked INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
+            # Automatic column migration if table was created previously without is_blocked
+            try:
+                conn.execute("ALTER TABLE users ADD COLUMN is_blocked INTEGER NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS invitations (
@@ -216,6 +223,18 @@ class UserManager:
             row = cursor.fetchone()
             return bool(row and row[0] > 0)
 
+    def is_user_blocked(self, username: str) -> bool:
+        """Return True if the user account is marked as blocked."""
+        clean_user = username.strip()
+        if not clean_user:
+            return False
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "SELECT is_blocked FROM users WHERE username = ?", (clean_user,)
+            )
+            row = cursor.fetchone()
+            return bool(row and row["is_blocked"])
+
     def verify_credentials(self, username: str, password: str) -> UserRecord | None:
         """Validate username & password against .env admin credentials or database."""
         clean_user = username.strip()
@@ -229,25 +248,28 @@ class UserManager:
 
         if env_admin and clean_user.casefold() == env_admin.casefold():
             if env_hash and verify_password(password, env_hash):
-                return UserRecord(username=env_admin, role="admin", created_at=0.0)
+                return UserRecord(username=env_admin, role="admin", created_at=0.0, is_blocked=False)
             if env_pass and secrets.compare_digest(password, env_pass):
-                return UserRecord(username=env_admin, role="admin", created_at=0.0)
+                return UserRecord(username=env_admin, role="admin", created_at=0.0, is_blocked=False)
             return None
 
         # 2. Check registered users in database
         with self._connect() as conn:
             cursor = conn.execute(
-                "SELECT username, password_hash, role, created_at FROM users WHERE username = ?",
+                "SELECT username, password_hash, role, created_at, is_blocked FROM users WHERE username = ?",
                 (clean_user,),
             )
             row = cursor.fetchone()
             if not row:
                 return None
+            if row["is_blocked"]:
+                raise ValueError("User account is blocked.")
             if verify_password(password, row["password_hash"]):
                 return UserRecord(
                     username=row["username"],
                     role=row["role"],
                     created_at=row["created_at"],
+                    is_blocked=bool(row["is_blocked"]),
                 )
         return None
 
@@ -332,6 +354,54 @@ class UserManager:
         with self._connect() as conn:
             cursor = conn.execute(
                 "DELETE FROM invitations WHERE code = ? AND used_by IS NULL", (code.strip().upper(),)
+            )
+            return cursor.rowcount > 0
+
+    def list_users(self) -> list[UserRecord]:
+        """List all users including environment administrator and registered users."""
+        results: list[UserRecord] = []
+        env_admin = (os.getenv("ADMIN_USERNAME") or os.getenv("VINYLSYNC_ADMIN_USER") or "").strip()
+        if env_admin:
+            results.append(UserRecord(username=env_admin, role="admin", created_at=0.0, is_blocked=False))
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "SELECT username, role, created_at, is_blocked FROM users ORDER BY created_at DESC"
+            )
+            for row in cursor.fetchall():
+                # Avoid duplicate if somehow registered with same name
+                if env_admin and row["username"].casefold() == env_admin.casefold():
+                    continue
+                results.append(
+                    UserRecord(
+                        username=row["username"],
+                        role=row["role"],
+                        created_at=row["created_at"],
+                        is_blocked=bool(row["is_blocked"]),
+                    )
+                )
+        return results
+
+    def delete_user(self, username: str) -> bool:
+        """Delete a registered user."""
+        clean_user = username.strip()
+        env_admin = (os.getenv("ADMIN_USERNAME") or os.getenv("VINYLSYNC_ADMIN_USER") or "").strip()
+        if env_admin and clean_user.casefold() == env_admin.casefold():
+            raise ValueError("Cannot delete environment administrator.")
+        with self._connect() as conn:
+            cursor = conn.execute("DELETE FROM users WHERE username = ?", (clean_user,))
+            return cursor.rowcount > 0
+
+    def set_user_blocked(self, username: str, blocked: bool) -> bool:
+        """Block or unblock a registered user."""
+        clean_user = username.strip()
+        env_admin = (os.getenv("ADMIN_USERNAME") or os.getenv("VINYLSYNC_ADMIN_USER") or "").strip()
+        if env_admin and clean_user.casefold() == env_admin.casefold():
+            raise ValueError("Cannot block environment administrator.")
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE users SET is_blocked = ? WHERE username = ?",
+                (1 if blocked else 0, clean_user),
             )
             return cursor.rowcount > 0
 

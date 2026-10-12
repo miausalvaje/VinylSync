@@ -7,6 +7,7 @@
 
 .auth-dialog { width: min(440px, 90vw); border: 1px solid #555865; border-radius: 16px; background: #17181ef8; color: #fff; padding: 1.5rem; }
 .auth-form { display: flex; flex-direction: column; }
+.auth-form[hidden], [hidden] { display: none !important; }
 .auth-form h2 { margin-top: 0; margin-bottom: 0.5rem; }
 .auth-desc { color: #a8abb6; font-size: 0.9rem; margin-top: 0; margin-bottom: 1rem; }
 .auth-form label { font-size: 0.9rem; margin-bottom: 0.4rem; color: #d7d9e0; }
@@ -22,6 +23,21 @@
 .user-header { display: flex; justify-content: space-between; align-items: center; }
 #logged-user-name { font-weight: 600; font-size: 1rem; color: #fff; }
 .btn-small { padding: 0.35rem 0.8rem; font-size: 0.82rem; }
+
+.users-list { margin-top: 0.8rem; display: flex; flex-direction: column; gap: 0.5rem; max-height: 220px; overflow-y: auto; }
+.user-item { display: flex; justify-content: space-between; align-items: center; background: #25262e; border: 1px solid #3d404d; border-radius: 8px; padding: 0.6rem 0.8rem; font-size: 0.85rem; }
+.user-item-info { display: flex; flex-direction: column; gap: 0.25rem; }
+.user-item-name { font-weight: 600; color: #fff; }
+.user-badge { display: inline-block; font-size: 0.72rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 500; width: fit-content; }
+.user-badge--active { background: rgba(110, 231, 183, 0.15); color: #6ee7b7; border: 1px solid rgba(110, 231, 183, 0.3); }
+.user-badge--blocked { background: rgba(248, 113, 113, 0.15); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.3); }
+.user-item-actions { display: flex; gap: 0.4rem; }
+.user-btn-block { background: transparent; border: 1px solid #555865; border-radius: 4px; color: #facc15; cursor: pointer; padding: 0.25rem 0.55rem; font-size: 0.75rem; }
+.user-btn-block:hover { background: rgba(250, 204, 21, 0.15); border-color: #facc15; }
+.user-btn-unblock { background: transparent; border: 1px solid #555865; border-radius: 4px; color: #6ee7b7; cursor: pointer; padding: 0.25rem 0.55rem; font-size: 0.75rem; }
+.user-btn-unblock:hover { background: rgba(110, 231, 183, 0.15); border-color: #6ee7b7; }
+.user-btn-del { background: transparent; border: 1px solid #555865; border-radius: 4px; color: #f87171; cursor: pointer; padding: 0.25rem 0.55rem; font-size: 0.75rem; }
+.user-btn-del:hover { background: #dc2626; border-color: #dc2626; color: #fff; }
 
 .invitations-list { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; max-height: 220px; overflow-y: auto; }
 .invite-item { display: flex; justify-content: space-between; align-items: center; background: #25262e; border: 1px solid #3d404d; border-radius: 8px; padding: 0.6rem 0.8rem; font-size: 0.85rem; }

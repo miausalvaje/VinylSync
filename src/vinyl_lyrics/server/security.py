@@ -180,9 +180,12 @@ def verify_token(
         return False
 
     # 1. Check signed user session JWT token
-    from vinyl_lyrics.server.users import verify_session_token
+    from vinyl_lyrics.server.users import DEFAULT_USER_MANAGER, verify_session_token
     session = verify_session_token(provided_token)
     if session is not None:
+        if DEFAULT_USER_MANAGER.is_user_blocked(session.get("sub", "")):
+            limiter.record_failure(client_ip)
+            return False
         limiter.record_success(client_ip)
         return True
 

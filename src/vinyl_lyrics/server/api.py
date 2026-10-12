@@ -69,7 +69,11 @@ async def login(request: Request) -> dict[str, Any]:
     if not username or not password:
         raise HTTPException(status_code=400, detail="Username and password are required.")
 
-    user = DEFAULT_USER_MANAGER.verify_credentials(username, password)
+    try:
+        user = DEFAULT_USER_MANAGER.verify_credentials(username, password)
+    except ValueError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password.")
 
@@ -116,7 +120,10 @@ def _get_current_user(request: Request) -> dict[str, Any]:
         token = auth_header[7:].strip()
     session = verify_session_token(token)
     if session:
-        return {"username": session.get("sub", ""), "role": session.get("role", "user")}
+        sub = session.get("sub", "")
+        if DEFAULT_USER_MANAGER.is_user_blocked(sub):
+            raise HTTPException(status_code=403, detail="User account is blocked.")
+        return {"username": sub, "role": session.get("role", "user")}
     # Fallback: if legacy token is used, grant admin role
     legacy = get_configured_auth_token()
     if legacy and token == legacy:
@@ -134,6 +141,59 @@ async def get_me(request: Request) -> dict[str, Any]:
         return {"authenticated": True, "auth_required": True, "user": user}
     except HTTPException:
         return {"authenticated": False, "auth_required": True, "user": None}
+
+
+@router.get("/api/users")
+async def list_users(request: Request) -> list[dict[str, Any]]:
+    """List registered users (Admin only)."""
+    user = _get_current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can view users.")
+    records = DEFAULT_USER_MANAGER.list_users()
+    return [
+        {
+            "username": r.username,
+            "role": r.role,
+            "created_at": r.created_at,
+            "is_blocked": r.is_blocked,
+        }
+        for r in records
+    ]
+
+
+@router.delete("/api/users/{username}")
+async def delete_user(username: str, request: Request) -> dict[str, Any]:
+    """Delete a registered user (Admin only)."""
+    user = _get_current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can delete users.")
+    try:
+        deleted = DEFAULT_USER_MANAGER.delete_user(username)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if not deleted:
+        raise HTTPException(status_code=404, detail="User not found.")
+    return {"deleted": True, "username": username}
+
+
+@router.post("/api/users/{username}/block")
+async def block_user(username: str, request: Request) -> dict[str, Any]:
+    """Block or unblock a registered user (Admin only)."""
+    user = _get_current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can block/unblock users.")
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    blocked = bool(payload.get("blocked", True)) if isinstance(payload, dict) else True
+    try:
+        updated = DEFAULT_USER_MANAGER.set_user_blocked(username, blocked)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found.")
+    return {"username": username, "is_blocked": blocked}
 
 
 @router.post("/api/invitations")
