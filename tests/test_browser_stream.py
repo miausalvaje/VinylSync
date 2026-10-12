@@ -301,6 +301,7 @@ def test_ws_audio_authentication(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # 2. Connect with subprotocol -> succeeds
     with client.websocket_connect("/ws/audio", subprotocols=["vinylsync-auth.ws-secret-123"]) as ws:
+        assert getattr(ws, "accepted_subprotocol", None) == "vinylsync-auth.ws-secret-123"
         ws.send_text(
             json.dumps(
                 {

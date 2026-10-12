@@ -12,6 +12,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from vinyl_lyrics.audio.source import BrowserStreamSource
 from vinyl_lyrics.server.security import (
     effective_client_ip,
+    extract_ws_subprotocol,
     extract_ws_subprotocol_token,
     get_configured_auth_token,
     validate_websocket,
@@ -95,7 +96,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         getattr(websocket.app.state, "trust_proxy", False),
         getattr(websocket.app.state, "trusted_proxies", []),
     )
-    sub_proto = "vinylsync-auth" if extract_ws_subprotocol_token(websocket) else None
+    sub_proto, _ = extract_ws_subprotocol(websocket)
     await websocket.accept(subprotocol=sub_proto)
     if not await authenticate_ws(websocket):
         return
@@ -120,7 +121,7 @@ async def spectrum_endpoint(websocket: WebSocket) -> None:
         getattr(websocket.app.state, "trust_proxy", False),
         getattr(websocket.app.state, "trusted_proxies", []),
     )
-    sub_proto = "vinylsync-auth" if extract_ws_subprotocol_token(websocket) else None
+    sub_proto, _ = extract_ws_subprotocol(websocket)
     await websocket.accept(subprotocol=sub_proto)
     if not await authenticate_ws(websocket):
         return
@@ -144,7 +145,7 @@ async def audio_stream_endpoint(websocket: WebSocket) -> None:
         getattr(websocket.app.state, "trust_proxy", False),
         getattr(websocket.app.state, "trusted_proxies", []),
     )
-    sub_proto = "vinylsync-auth" if extract_ws_subprotocol_token(websocket) else None
+    sub_proto, _ = extract_ws_subprotocol(websocket)
     await websocket.accept(subprotocol=sub_proto)
     if not await authenticate_ws(websocket):
         return
@@ -200,6 +201,8 @@ async def audio_stream_endpoint(websocket: WebSocket) -> None:
             runtime.capture.start()
         except Exception:
             pass
+
+    runtime.ensure_control_loop()
 
     from vinyl_lyrics.main import AudioSenderSession
 

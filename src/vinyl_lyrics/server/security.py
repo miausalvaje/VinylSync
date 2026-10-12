@@ -48,6 +48,22 @@ def host_name(host_header: str | None) -> str:
     return urlsplit(f"//{host_header}").hostname or ""
 
 
+def is_local_or_private_host(host: str) -> bool:
+    """Return True if host is localhost, a local domain, or a private/link-local IP address."""
+    if not host:
+        return False
+    clean_host = host.casefold().strip("[]")
+    if clean_host in {"localhost", "127.0.0.1", "::1", "testserver"}:
+        return True
+    if clean_host.endswith((".local", ".lan", ".home.arpa")):
+        return True
+    try:
+        ip = ipaddress.ip_address(clean_host)
+        return ip.is_private or ip.is_loopback or ip.is_link_local
+    except ValueError:
+        return False
+
+
 def allowed_origins(
     hosts: set[str], port: int, extra_origins: Iterable[str] | None = None
 ) -> set[str]:
@@ -188,13 +204,29 @@ class LocalSecurityMiddleware(BaseHTTPMiddleware):
         host_hdr = effective_host_header(
             request.headers, peer_ip, self.trust_proxy, self.trusted_proxies
         )
-        if host_name(host_hdr).casefold() not in self.hosts:
+        hdr_host = host_name(host_hdr).casefold()
+        host_allowed = (
+            "*" in self.hosts
+            or hdr_host in self.hosts
+            or ("0.0.0.0" in self.hosts and is_local_or_private_host(hdr_host))
+            or ("::" in self.hosts and is_local_or_private_host(hdr_host))
+        )
+        if not host_allowed:
             return JSONResponse({"detail": "Host is not allowed."}, status_code=400)
 
         if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             origin = request.headers.get("origin")
-            if origin and origin.rstrip("/") not in self.origins:
-                return JSONResponse({"detail": "Origin is not allowed."}, status_code=403)
+            if origin:
+                cleaned_origin = origin.rstrip("/")
+                origin_host = urlsplit(origin).hostname or ""
+                origin_allowed = (
+                    "*" in self.origins
+                    or cleaned_origin in self.origins
+                    or ("0.0.0.0" in self.hosts and is_local_or_private_host(origin_host))
+                    or ("::" in self.hosts and is_local_or_private_host(origin_host))
+                )
+                if not origin_allowed:
+                    return JSONResponse({"detail": "Origin is not allowed."}, status_code=403)
 
         expected_token = get_configured_auth_token()
         if expected_token:
@@ -235,15 +267,35 @@ def validate_websocket(
     """Raise HTTP 403 when a WebSocket request has an untrusted host or origin."""
     peer_ip = websocket.client.host if websocket.client else None
     host_hdr = effective_host_header(websocket.headers, peer_ip, trust_proxy, trusted_proxies or [])
-    if host_name(host_hdr).casefold() not in hosts:
+    hdr_host = host_name(host_hdr).casefold()
+    host_allowed = (
+        "*" in hosts
+        or hdr_host in hosts
+        or ("0.0.0.0" in hosts and is_local_or_private_host(hdr_host))
+        or ("::" in hosts and is_local_or_private_host(hdr_host))
+    )
+    if not host_allowed:
         raise HTTPException(status_code=403, detail="Host is not allowed.")
     origin = websocket.headers.get("origin")
-    if origin and origin.rstrip("/") not in origins:
-        raise HTTPException(status_code=403, detail="Origin is not allowed.")
+    if origin:
+        cleaned_origin = origin.rstrip("/")
+        origin_host = urlsplit(origin).hostname or ""
+        origin_allowed = (
+            "*" in origins
+            or cleaned_origin in origins
+            or ("0.0.0.0" in hosts and is_local_or_private_host(origin_host))
+            or ("::" in hosts and is_local_or_private_host(origin_host))
+        )
+        if not origin_allowed:
+            raise HTTPException(status_code=403, detail="Origin is not allowed.")
 
 
-def extract_ws_subprotocol_token(websocket: WebSocket) -> str | None:
-    """Extract auth token from Sec-WebSocket-Protocol headers if present."""
+def extract_ws_subprotocol(websocket: WebSocket) -> tuple[str | None, str | None]:
+    """Extract matching requested subprotocol and auth token if present.
+
+    Returns:
+        (matched_subprotocol, extracted_token)
+    """
     protocols: list[str] = []
     header_val = websocket.headers.get("sec-websocket-protocol", "")
     if header_val:
@@ -251,7 +303,14 @@ def extract_ws_subprotocol_token(websocket: WebSocket) -> str | None:
     protocols.extend(websocket.scope.get("subprotocols") or [])
     for proto in protocols:
         if proto.startswith("vinylsync-auth."):
-            return proto.removeprefix("vinylsync-auth.").strip()
+            return proto, proto.removeprefix("vinylsync-auth.").strip()
         if proto.startswith("bearer."):
-            return proto.removeprefix("bearer.").strip()
-    return None
+            return proto, proto.removeprefix("bearer.").strip()
+        if proto == "vinylsync-auth":
+            return proto, None
+    return None, None
+
+
+def extract_ws_subprotocol_token(websocket: WebSocket) -> str | None:
+    """Extract auth token from Sec-WebSocket-Protocol headers if present."""
+    return extract_ws_subprotocol(websocket)[1]

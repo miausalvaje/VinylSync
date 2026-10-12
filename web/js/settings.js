@@ -239,6 +239,9 @@ export function setupSettings(store) {
         sourceSelect.value = payload.source_id;
         if (modeServer) modeServer.checked = true;
         setMode("server");
+      } else if (payload.source_id === "browser") {
+        if (modeMic) modeMic.checked = true;
+        setMode("mic");
       }
       setValue("gain-slider", payload.gain_db, "gain-value", " dB");
       setValue("threshold-slider", payload.silence_enter_dbfs, "threshold-value", " dBFS");

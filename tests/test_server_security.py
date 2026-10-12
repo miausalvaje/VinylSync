@@ -179,3 +179,30 @@ def test_websocket_rejects_foreign_origin() -> None:
     with pytest.raises(HTTPException) as error:
         validate_websocket(FakeWebSocket(), hosts, origins)  # type: ignore[arg-type]
     assert error.value.status_code == 403
+
+
+def test_extract_ws_subprotocol_matches_exact_string() -> None:
+    from vinyl_lyrics.server.security import extract_ws_subprotocol
+
+    class FakeWebSocket:
+        headers = {"sec-websocket-protocol": "vinylsync-auth.my-secret-key-123"}
+        scope = {"subprotocols": ["vinylsync-auth.my-secret-key-123"]}
+
+    proto, token = extract_ws_subprotocol(FakeWebSocket())  # type: ignore[arg-type]
+    assert proto == "vinylsync-auth.my-secret-key-123"
+    assert token == "my-secret-key-123"
+
+
+def test_lan_hosts_allowed_when_listening_on_all_interfaces() -> None:
+    from vinyl_lyrics.server.security import allowed_hosts, validate_websocket
+
+    hosts = allowed_hosts("0.0.0.0", None)
+    origins = {"http://127.0.0.1:8000"}
+
+    # LAN client accessing via IP or .local
+    class FakeLanWebSocket:
+        headers = {"host": "192.168.1.150:8000", "origin": "http://192.168.1.150:8000"}
+        client = None
+
+    # Should not raise 403
+    validate_websocket(FakeLanWebSocket(), hosts, origins)  # type: ignore[arg-type]

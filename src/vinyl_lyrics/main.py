@@ -315,7 +315,7 @@ class ApplicationRuntime:
         for client in tuple(self.clients):
             try:
                 await client.send_json(message)
-            except (ConnectionError, RuntimeError):
+            except Exception:
                 self.clients.discard(client)
 
     async def broadcast_spectrum(self) -> None:
@@ -332,7 +332,7 @@ class ApplicationRuntime:
         for client in tuple(self.spectrum_clients):
             try:
                 await client.send_json(payload)
-            except (ConnectionError, RuntimeError):
+            except Exception:
                 self.spectrum_clients.discard(client)
 
     def _apply_track(self, track: Track, locked: bool) -> None:
@@ -562,11 +562,17 @@ class ApplicationRuntime:
                 logger.exception("Spectrum processing failed: %s", error)
             await asyncio.sleep(0.025)
 
+    def ensure_control_loop(self) -> None:
+        """Ensure background control and spectrum processing loops are active."""
+        if self._control_task is None or self._control_task.done():
+            self._control_task = asyncio.create_task(self.loop())
+            self._task = self._control_task
+        if self._spectrum_task is None or self._spectrum_task.done():
+            self._spectrum_task = asyncio.create_task(self.spectrum_loop())
+
     async def start(self) -> None:
         """Start continuous capture processing."""
-        self._control_task = asyncio.create_task(self.loop())
-        self._spectrum_task = asyncio.create_task(self.spectrum_loop())
-        self._task = self._control_task
+        self.ensure_control_loop()
 
     async def stop(self) -> None:
         """Stop processing and release the audio source."""

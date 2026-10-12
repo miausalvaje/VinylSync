@@ -177,8 +177,25 @@ export class AudioCaptureManager {
         this.socket.send(event.data);
       }
     };
+    this.workletNode.onprocessorerror = (err) => {
+      console.error("[AudioCapture] AudioWorkletProcessor runtime error:", err);
+    };
 
+    // Keep the Web Audio graph active by routing through a muted GainNode to destination.
+    // In Chromium/Brave and Gecko/Firefox, nodes unconnected to AudioDestinationNode are
+    // pruned from the render quantum cycle, preventing process() from ever executing.
+    this.silentGain = this.audioContext.createGain();
+    this.silentGain.gain.value = 0;
     sourceNode.connect(this.workletNode);
+    this.workletNode.connect(this.silentGain);
+    this.silentGain.connect(this.audioContext.destination);
+
+    this.audioContext.onstatechange = () => {
+      if (this.isCapturing && this.audioContext?.state === "suspended") {
+        this.audioContext.resume().catch(() => {});
+      }
+    };
+
     await this._acquireWakeLock();
     this._acquireWebLock();
   }
@@ -325,6 +342,15 @@ export class AudioCaptureManager {
         // Ignore
       }
       this.workletNode = null;
+    }
+
+    if (this.silentGain) {
+      try {
+        this.silentGain.disconnect();
+      } catch {
+        // Ignore
+      }
+      this.silentGain = null;
     }
 
     if (this.audioContext) {

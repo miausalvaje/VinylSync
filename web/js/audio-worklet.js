@@ -15,21 +15,38 @@ class PCM16RecorderProcessor extends AudioWorkletProcessor {
     if (!input || !input[0]) {
       return true;
     }
-    const channel = input[0];
+    const numChannels = input.length;
+    const len = input[0].length;
 
-    for (let i = 0; i < channel.length; i++) {
-      this.buffer[this.bufferIndex++] = channel[i];
-      if (this.bufferIndex >= this.bufferSize) {
-        const pcm16 = new Int16Array(this.bufferSize);
-        for (let j = 0; j < this.bufferSize; j++) {
-          const s = Math.max(-1, Math.min(1, this.buffer[j]));
-          pcm16[j] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    if (numChannels === 1) {
+      const ch0 = input[0];
+      for (let i = 0; i < len; i++) {
+        this.buffer[this.bufferIndex++] = ch0[i];
+        if (this.bufferIndex >= this.bufferSize) {
+          this._flushBuffer();
         }
-        this.port.postMessage(pcm16.buffer, [pcm16.buffer]);
-        this.bufferIndex = 0;
+      }
+    } else {
+      const ch0 = input[0];
+      const ch1 = input[1];
+      for (let i = 0; i < len; i++) {
+        this.buffer[this.bufferIndex++] = (ch0[i] + ch1[i]) * 0.5;
+        if (this.bufferIndex >= this.bufferSize) {
+          this._flushBuffer();
+        }
       }
     }
     return true;
+  }
+
+  _flushBuffer() {
+    const pcm16 = new Int16Array(this.bufferSize);
+    for (let j = 0; j < this.bufferSize; j++) {
+      const s = Math.max(-1, Math.min(1, this.buffer[j]));
+      pcm16[j] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    this.port.postMessage(pcm16.buffer, [pcm16.buffer]);
+    this.bufferIndex = 0;
   }
 }
 
