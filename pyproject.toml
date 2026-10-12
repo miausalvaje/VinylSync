@@ -31,7 +31,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "platformdirs>=4.0",
     "shazamio>=0.8",
-    "pyaudiowpatch>=0.2.12.6; platform_system == 'Windows'",
+    "pyaudiowpatch>=0.2.12; platform_system == 'Windows'",
 ]
 
 [project.optional-dependencies]
