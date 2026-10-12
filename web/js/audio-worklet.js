@@ -10,13 +10,23 @@ class PCM16RecorderProcessor extends AudioWorkletProcessor {
     this.bufferIndex = 0;
   }
 
-  process(inputs) {
+  process(inputs, outputs) {
     const input = inputs[0];
     if (!input || !input[0]) {
       return true;
     }
     const numChannels = input.length;
     const len = input[0].length;
+
+    // Passthrough audio to output so downstream nodes pull the quantum
+    if (outputs && outputs[0] && outputs[0][0]) {
+      const out = outputs[0][0];
+      const ch0 = input[0];
+      const copyLen = Math.min(out.length, ch0.length);
+      for (let i = 0; i < copyLen; i++) {
+        out[i] = ch0[i];
+      }
+    }
 
     if (numChannels === 1) {
       const ch0 = input[0];
@@ -27,10 +37,12 @@ class PCM16RecorderProcessor extends AudioWorkletProcessor {
         }
       }
     } else {
-      const ch0 = input[0];
-      const ch1 = input[1];
       for (let i = 0; i < len; i++) {
-        this.buffer[this.bufferIndex++] = (ch0[i] + ch1[i]) * 0.5;
+        let sum = 0;
+        for (let c = 0; c < numChannels; c++) {
+          sum += input[c][i];
+        }
+        this.buffer[this.bufferIndex++] = sum / numChannels;
         if (this.bufferIndex >= this.bufferSize) {
           this._flushBuffer();
         }

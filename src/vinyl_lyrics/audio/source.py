@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 import threading
 import time
@@ -12,6 +13,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 warnings.filterwarnings(
     "ignore",
@@ -168,6 +171,7 @@ class BrowserStreamSource(AudioSource):
         self._anchor_monotonic: float | None = None
         self._total_samples_delivered = 0
         self._last_received_monotonic: float | None = None
+        self._last_log_monotonic: float | None = None
 
     @property
     def active_client_id(self) -> str | None:
@@ -187,6 +191,7 @@ class BrowserStreamSource(AudioSource):
             self._anchor_monotonic = None
             self._total_samples_delivered = 0
             self._last_received_monotonic = None
+            self._last_log_monotonic = None
 
     def reset_stream(self, client_id: str | None, client_sample_rate: int) -> None:
         """Reset the stream clock and configuration for a newly connected sender."""
@@ -196,6 +201,7 @@ class BrowserStreamSource(AudioSource):
             self._anchor_monotonic = None
             self._total_samples_delivered = 0
             self._last_received_monotonic = None
+            self._last_log_monotonic = None
 
     def current_stream_monotonic(self, now: float | None = None) -> float:
         """Return the stream timestamp corresponding to the end of buffered samples."""
@@ -214,6 +220,19 @@ class BrowserStreamSource(AudioSource):
             if pcm.size == 0:
                 return
 
+            t_now = time.monotonic() if now is None else now
+            if self._last_log_monotonic is None or t_now - self._last_log_monotonic >= 5.0:
+                self._last_log_monotonic = t_now
+                peak = float(np.max(np.abs(pcm)))
+                logger.info(
+                    "Browser audio frame: bytes=%d, peak=%.4f, client_sr=%d, sr=%d, delivered=%d",
+                    len(data),
+                    peak,
+                    self._client_sample_rate,
+                    self.sample_rate,
+                    self._total_samples_delivered,
+                )
+
             if self._client_sample_rate != self.sample_rate:
                 in_len = len(pcm)
                 out_len = int(round(in_len * (self.sample_rate / self._client_sample_rate)))
@@ -225,7 +244,6 @@ class BrowserStreamSource(AudioSource):
             else:
                 samples = pcm
 
-            t_now = time.monotonic() if now is None else now
             if self._anchor_monotonic is None:
                 self._anchor_monotonic = t_now
                 self._total_samples_delivered = 0
@@ -234,8 +252,8 @@ class BrowserStreamSource(AudioSource):
                     self._total_samples_delivered / self.sample_rate
                 )
                 delta = t_now - t_stream
-                # Gap filling: if delayed or dropped frames create a gap > 50ms, fill with silence
-                if delta > 0.05:
+                # Gap filling: if delayed or dropped frames create a gap > 250ms, fill with silence
+                if delta > 0.25:
                     missing_samples = int(round(delta * self.sample_rate))
                     if missing_samples > 0:
                         zeros = np.zeros(missing_samples, dtype=np.float32)
@@ -243,12 +261,11 @@ class BrowserStreamSource(AudioSource):
                         self._total_samples_delivered += missing_samples
 
                 # Drift correction: gently adjust anchor for small, subtle hardware clock drift
-                # Transient network bursts (drift < -0.05) must not move the anchor.
                 t_stream = self._anchor_monotonic + (
                     self._total_samples_delivered / self.sample_rate
                 )
                 drift = t_now - t_stream
-                if 0.005 < abs(drift) <= 0.05:
+                if 0.005 < abs(drift) <= 0.20:
                     self._anchor_monotonic += 0.005 * drift
 
             self._callback(samples)

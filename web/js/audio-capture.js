@@ -6,8 +6,11 @@ export class AudioCaptureManager {
   constructor() {
     this.clientId = this._initClientId();
     this.mediaStream = null;
+    this.displayStream = null;
     this.audioContext = null;
+    this.sourceNode = null;
     this.workletNode = null;
+    this.silentGain = null;
     this.socket = null;
     this.wakeLock = null;
     this.releaseWebLock = null;
@@ -81,7 +84,6 @@ export class AudioCaptureManager {
         echoCancellation: false,
         noiseSuppression: false,
         autoGainControl: false,
-        channelCount: 1,
         ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
       },
       video: false,
@@ -90,6 +92,7 @@ export class AudioCaptureManager {
     try {
       this._emit("starting");
       this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      this._inspectTrack(this.mediaStream);
       await this._setupAudioPipeline();
       this._connectSocket();
     } catch (error) {
@@ -116,27 +119,51 @@ export class AudioCaptureManager {
         video: true,
       });
 
-      // Discard unused video tracks immediately
-      displayStream.getVideoTracks().forEach((track) => track.stop());
-
       const audioTracks = displayStream.getAudioTracks();
       if (!audioTracks.length) {
-        throw new Error("No audio track was shared. Check the 'Share audio' checkbox in your browser.");
+        displayStream.getTracks().forEach((track) => track.stop());
+        throw new Error(
+          "No audio track was shared. Make sure to check 'Share audio' in the browser screen-sharing dialog."
+        );
       }
 
-      this.mediaStream = new MediaStream(audioTracks);
-      // Listen for user stopping share via browser native banner
-      audioTracks[0].addEventListener("ended", () => {
-        this._emit("stopped_by_user");
-        this.stop();
+      // Keep displayStream intact. In Chromium/Brave, calling track.stop() on the screen-share
+      // video track immediately terminates the capture session and mutes the audio track.
+      this.displayStream = displayStream;
+      this.mediaStream = displayStream;
+
+      displayStream.getTracks().forEach((track) => {
+        track.addEventListener("ended", () => {
+          this._emit("stopped_by_user");
+          this.stop();
+        });
       });
 
+      this._inspectTrack(this.mediaStream);
       await this._setupAudioPipeline();
       this._connectSocket();
     } catch (error) {
       this._emit("error", { message: this._friendlyErrorMessage(error) });
       this.stop();
       throw error;
+    }
+  }
+
+  _inspectTrack(stream) {
+    const track = stream.getAudioTracks()[0];
+    if (track) {
+      console.log("[AudioCapture] Audio track:", {
+        label: track.label,
+        enabled: track.enabled,
+        muted: track.muted,
+        readyState: track.readyState,
+        settings: track.getSettings ? track.getSettings() : {},
+      });
+      if (track.muted) {
+        console.warn(
+          "[AudioCapture] Audio track is marked as MUTED by OS or browser permissions."
+        );
+      }
     }
   }
 
@@ -169,12 +196,29 @@ export class AudioCaptureManager {
     }
 
     await this.audioContext.audioWorklet.addModule("/js/audio-worklet.js");
-    const sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
+    // Hold reference on instance to prevent V8/Gecko garbage collection
+    this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
     this.workletNode = new AudioWorkletNode(this.audioContext, "pcm16-recorder-processor");
 
+    let logCounter = 0;
     this.workletNode.port.onmessage = (event) => {
       if (this.isCapturing && this.socket && this.socket.readyState === WebSocket.OPEN) {
         this.socket.send(event.data);
+
+        // Periodically verify peak sample amplitude in browser devtools console
+        logCounter++;
+        if (logCounter % 45 === 0) {
+          const pcm = new Int16Array(event.data);
+          let peak = 0;
+          for (let i = 0; i < pcm.length; i++) {
+            const v = Math.abs(pcm[i]);
+            if (v > peak) peak = v;
+          }
+          const peakNorm = (peak / 32768.0).toFixed(4);
+          console.log(
+            `[AudioCapture] Streaming: peak=${peakNorm} (max int16: ${peak}), frames=${logCounter}`
+          );
+        }
       }
     };
     this.workletNode.onprocessorerror = (err) => {
@@ -182,11 +226,11 @@ export class AudioCaptureManager {
     };
 
     // Keep the Web Audio graph active by routing through a muted GainNode to destination.
-    // In Chromium/Brave and Gecko/Firefox, nodes unconnected to AudioDestinationNode are
-    // pruned from the render quantum cycle, preventing process() from ever executing.
+    // Connect both sourceNode and workletNode to ensure the OS audio input is actively pulled.
     this.silentGain = this.audioContext.createGain();
     this.silentGain.gain.value = 0;
-    sourceNode.connect(this.workletNode);
+    this.sourceNode.connect(this.workletNode);
+    this.sourceNode.connect(this.silentGain);
     this.workletNode.connect(this.silentGain);
     this.silentGain.connect(this.audioContext.destination);
 
@@ -333,6 +377,24 @@ export class AudioCaptureManager {
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((track) => track.stop());
       this.mediaStream = null;
+    }
+
+    if (this.displayStream) {
+      try {
+        this.displayStream.getTracks().forEach((track) => track.stop());
+      } catch {
+        // Ignore
+      }
+      this.displayStream = null;
+    }
+
+    if (this.sourceNode) {
+      try {
+        this.sourceNode.disconnect();
+      } catch {
+        // Ignore
+      }
+      this.sourceNode = null;
     }
 
     if (this.workletNode) {
