@@ -227,9 +227,7 @@ class UserManager:
         if not clean_user:
             return False
         with self._connect() as conn:
-            cursor = conn.execute(
-                "SELECT is_blocked FROM users WHERE username = ?", (clean_user,)
-            )
+            cursor = conn.execute("SELECT is_blocked FROM users WHERE username = ?", (clean_user,))
             row = cursor.fetchone()
             return bool(row and row["is_blocked"])
 
@@ -250,15 +248,22 @@ class UserManager:
 
         if env_admin and clean_user.casefold() == env_admin.casefold():
             if env_hash and verify_password(password, env_hash):
-                return UserRecord(username=env_admin, role="admin", created_at=0.0, is_blocked=False)
+                return UserRecord(
+                    username=env_admin, role="admin", created_at=0.0, is_blocked=False
+                )
             if env_pass and secrets.compare_digest(password, env_pass):
-                return UserRecord(username=env_admin, role="admin", created_at=0.0, is_blocked=False)
+                return UserRecord(
+                    username=env_admin, role="admin", created_at=0.0, is_blocked=False
+                )
             return None
 
         # 2. Check registered users in database
         with self._connect() as conn:
             cursor = conn.execute(
-                "SELECT username, password_hash, role, created_at, is_blocked FROM users WHERE username = ?",
+                """
+                SELECT username, password_hash, role, created_at, is_blocked
+                FROM users WHERE username = ?
+                """,
                 (clean_user,),
             )
             row = cursor.fetchone()
@@ -367,7 +372,9 @@ class UserManager:
         results: list[UserRecord] = []
         env_admin = (os.getenv("ADMIN_USERNAME") or os.getenv("VINYLSYNC_ADMIN_USER") or "").strip()
         if env_admin:
-            results.append(UserRecord(username=env_admin, role="admin", created_at=0.0, is_blocked=False))
+            results.append(
+                UserRecord(username=env_admin, role="admin", created_at=0.0, is_blocked=False)
+            )
 
         with self._connect() as conn:
             cursor = conn.execute(

@@ -137,7 +137,12 @@ def test_api_user_auth_and_invitations(tmp_path: Path, monkeypatch: pytest.Monke
 
     # 11. Guest cannot list or manage users (Admin only)
     assert client.get("/api/users", headers=guest_headers).status_code == 403
-    assert client.post("/api/users/invited_guest/block", json={"blocked": True}, headers=guest_headers).status_code == 403
+    assert (
+        client.post(
+            "/api/users/invited_guest/block", json={"blocked": True}, headers=guest_headers
+        ).status_code
+        == 403
+    )
     assert client.delete("/api/users/invited_guest", headers=guest_headers).status_code == 403
 
     # 12. Admin lists users
@@ -150,7 +155,9 @@ def test_api_user_auth_and_invitations(tmp_path: Path, monkeypatch: pytest.Monke
     assert guest_entry["is_blocked"] is False
 
     # 13. Admin blocks guest user
-    block_res = client.post("/api/users/invited_guest/block", json={"blocked": True}, headers=admin_headers)
+    block_res = client.post(
+        "/api/users/invited_guest/block", json={"blocked": True}, headers=admin_headers
+    )
     assert block_res.status_code == 200
     assert block_res.json()["is_blocked"] is True
 
@@ -165,7 +172,9 @@ def test_api_user_auth_and_invitations(tmp_path: Path, monkeypatch: pytest.Monke
     assert blocked_login.status_code == 403
 
     # 16. Admin unblocks guest user
-    unblock_res = client.post("/api/users/invited_guest/block", json={"blocked": False}, headers=admin_headers)
+    unblock_res = client.post(
+        "/api/users/invited_guest/block", json={"blocked": False}, headers=admin_headers
+    )
     assert unblock_res.status_code == 200
     assert unblock_res.json()["is_blocked"] is False
 
@@ -181,12 +190,14 @@ def test_api_user_auth_and_invitations(tmp_path: Path, monkeypatch: pytest.Monke
     assert del_res.status_code == 200
 
     # User no longer exists
-    assert client.post(
-        "/api/auth/login",
-        json={"username": "invited_guest", "password": "guestpassword123"},
-    ) .status_code == 401
+    assert (
+        client.post(
+            "/api/auth/login",
+            json={"username": "invited_guest", "password": "guestpassword123"},
+        ).status_code
+        == 401
+    )
 
     # Admin cannot delete admin account
     admin_del = client.delete("/api/users/admin", headers=admin_headers)
     assert admin_del.status_code == 400
-
