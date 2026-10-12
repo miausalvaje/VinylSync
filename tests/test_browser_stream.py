@@ -226,9 +226,9 @@ def test_ws_audio_disconnect_transitions_to_no_source() -> None:
         )
         assert json.loads(ws.receive_text()).get("type") == "hello_ok"
         assert app.state.runtime.status in ("listening", "idle")
+        ws.close()
 
     # Socket closed: runtime transitions to no_source
-    client.get("/api/state")
     assert app.state.runtime.status == "no_source"
     assert app.state.runtime.has_capturer is False
 

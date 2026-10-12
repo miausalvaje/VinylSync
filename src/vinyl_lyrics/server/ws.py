@@ -53,8 +53,8 @@ class AudioTokenBucket:
 
 async def authenticate_ws(websocket: WebSocket) -> bool:
     """Validate WebSocket authentication via subprotocol or first message."""
-    expected = get_configured_auth_token()
-    if not expected:
+    from vinyl_lyrics.server.security import is_auth_required
+    if not is_auth_required():
         return True
     peer_ip = effective_client_ip(
         websocket.headers,

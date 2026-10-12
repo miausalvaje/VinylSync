@@ -1,4 +1,4 @@
-import { fetchWithAuth } from "./state.js";
+import { fetchWithAuth, setAuthToken } from "./state.js";
 import { audioCaptureManager } from "./audio-capture.js";
 
 export function setupSettings(store) {
@@ -319,6 +319,120 @@ export function setupSettings(store) {
       error.hidden = false;
     }
   }
+
+  // User session and invitations UI
+  const userAccountSection = document.querySelector("#user-account-section");
+  const loggedUserName = document.querySelector("#logged-user-name");
+  const logoutBtn = document.querySelector("#logout-btn");
+  const adminInvitationsArea = document.querySelector("#admin-invitations-area");
+  const createInviteBtn = document.querySelector("#create-invite-btn");
+  const invitationsList = document.querySelector("#invitations-list");
+
+  let currentUser = null;
+
+  async function refreshInvitations() {
+    if (!adminInvitationsArea || adminInvitationsArea.hidden) return;
+    try {
+      const res = await fetchWithAuth("/api/invitations");
+      if (!res.ok) return;
+      const invites = await res.json();
+      invitationsList.replaceChildren();
+      if (!invites.length) {
+        const empty = document.createElement("p");
+        empty.className = "settings-help";
+        empty.textContent = "No active invitations. Click '+ Generate code' to create one.";
+        invitationsList.appendChild(empty);
+        return;
+      }
+      invites.forEach((inv) => {
+        const item = document.createElement("div");
+        item.className = "invite-item";
+
+        const left = document.createElement("div");
+        const codeEl = document.createElement("div");
+        codeEl.className = "invite-item-code";
+        codeEl.textContent = inv.code;
+        const statusEl = document.createElement("div");
+        statusEl.className = `invite-item-status ${inv.is_used ? "invite-item-status--used" : ""}`;
+        statusEl.textContent = inv.is_used ? `Used by ${inv.used_by}` : "Available";
+        left.appendChild(codeEl);
+        left.appendChild(statusEl);
+
+        const right = document.createElement("div");
+        right.className = "invite-item-actions";
+
+        if (!inv.is_used) {
+          const copyBtn = document.createElement("button");
+          copyBtn.type = "button";
+          copyBtn.className = "invite-btn-copy";
+          copyBtn.textContent = "Copy";
+          copyBtn.onclick = () => {
+            navigator.clipboard?.writeText(inv.code);
+            copyBtn.textContent = "Copied!";
+            setTimeout(() => (copyBtn.textContent = "Copy"), 2000);
+          };
+          right.appendChild(copyBtn);
+
+          const delBtn = document.createElement("button");
+          delBtn.type = "button";
+          delBtn.className = "invite-btn-del";
+          delBtn.textContent = "×";
+          delBtn.title = "Delete invitation";
+          delBtn.onclick = async () => {
+            await fetchWithAuth(`/api/invitations/${inv.code}`, { method: "DELETE" });
+            refreshInvitations();
+          };
+          right.appendChild(delBtn);
+        }
+
+        item.appendChild(left);
+        item.appendChild(right);
+        invitationsList.appendChild(item);
+      });
+    } catch {
+      // Ignore
+    }
+  }
+
+  function updateUserUI(user) {
+    currentUser = user;
+    if (!userAccountSection) return;
+    if (user) {
+      userAccountSection.hidden = false;
+      if (loggedUserName) {
+        loggedUserName.textContent = `${user.username} (${user.role})`;
+      }
+      if (adminInvitationsArea) {
+        adminInvitationsArea.hidden = user.role !== "admin";
+        if (user.role === "admin") {
+          refreshInvitations();
+        }
+      }
+    } else {
+      userAccountSection.hidden = true;
+    }
+  }
+
+  logoutBtn?.addEventListener("click", () => {
+    setAuthToken("");
+    updateUserUI(null);
+    window.location.reload();
+  });
+
+  createInviteBtn?.addEventListener("click", async () => {
+    try {
+      const res = await fetchWithAuth("/api/invitations", { method: "POST" });
+      if (res.ok) {
+        refreshInvitations();
+      }
+    } catch (err) {
+      showSettingsError(err.message);
+    }
+  });
+
+  window.addEventListener("vinylsync:user_changed", (event) => {
+    updateUserUI(event.detail);
+  });
 
   return { open, close };
 }

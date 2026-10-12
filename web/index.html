@@ -130,6 +130,21 @@
           <output id="offset-value">0 s</output>
           <button id="offset-up" type="button">+0.5 s</button>
         </div>
+
+        <!-- User account & Admin invitations -->
+        <div id="user-account-section" class="user-account-section" hidden>
+          <hr class="settings-divider">
+          <div class="user-header">
+            <span id="logged-user-name">User</span>
+            <button id="logout-btn" type="button" class="secondary-button btn-small">Log out</button>
+          </div>
+          <div id="admin-invitations-area" hidden>
+            <h3>Invitations</h3>
+            <p class="settings-help">Create single-use invitation codes for new users.</p>
+            <button id="create-invite-btn" type="button" class="primary-button btn-small">+ Generate code</button>
+            <div id="invitations-list" class="invitations-list"></div>
+          </div>
+        </div>
       </aside>
 
       <dialog id="search-dialog" class="search-dialog">
@@ -143,14 +158,38 @@
       </dialog>
 
       <dialog id="auth-dialog" class="auth-dialog">
-        <form method="dialog" class="auth-form" id="auth-form">
-          <h2>Authentication required</h2>
-          <p class="auth-desc">This VinylSync server requires an access token.</p>
-          <label for="auth-token-input">Access token</label>
-          <input id="auth-token-input" type="password" autocomplete="current-password" placeholder="Enter token" required>
-          <div id="auth-error" class="auth-error" hidden>Invalid token. Please try again.</div>
+        <div class="auth-tabs">
+          <button type="button" class="auth-tab auth-tab--active" id="tab-login-btn">Log in</button>
+          <button type="button" class="auth-tab" id="tab-register-btn">Register with invite</button>
+        </div>
+
+        <!-- Login form -->
+        <form method="dialog" class="auth-form" id="login-form">
+          <h2>Welcome to VinylSync</h2>
+          <p class="auth-desc">Sign in with your username & password, or token.</p>
+          <label for="login-username-input">Username</label>
+          <input id="login-username-input" type="text" autocomplete="username" placeholder="Username" required>
+          <label for="login-password-input">Password</label>
+          <input id="login-password-input" type="password" autocomplete="current-password" placeholder="Password" required>
+          <div id="login-error" class="auth-error" hidden></div>
           <div class="dialog-actions">
-            <button type="submit" class="primary-button" id="auth-submit-btn">Unlock</button>
+            <button type="submit" class="primary-button" id="login-submit-btn">Sign in</button>
+          </div>
+        </form>
+
+        <!-- Register form -->
+        <form method="dialog" class="auth-form" id="register-form" hidden>
+          <h2>Create an account</h2>
+          <p class="auth-desc">Enter your invitation code to create an account.</p>
+          <label for="register-invite-input">Invitation code</label>
+          <input id="register-invite-input" type="text" placeholder="XXXX-XXXX-XXXX" required>
+          <label for="register-username-input">Username</label>
+          <input id="register-username-input" type="text" autocomplete="username" placeholder="Choose a username" required>
+          <label for="register-password-input">Password</label>
+          <input id="register-password-input" type="password" autocomplete="new-password" placeholder="Choose a password" required>
+          <div id="register-error" class="auth-error" hidden></div>
+          <div class="dialog-actions">
+            <button type="submit" class="primary-button" id="register-submit-btn">Register</button>
           </div>
         </form>
       </dialog>

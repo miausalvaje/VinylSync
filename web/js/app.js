@@ -11,8 +11,11 @@ const lyricsView = document.querySelector("#lyrics-view");
 const stateLabel = document.querySelector("#state-label");
 const identifying = document.querySelector("#identifying-indicator");
 const authDialog = document.querySelector("#auth-dialog");
-const authForm = document.querySelector("#auth-form");
-const authError = document.querySelector("#auth-error");
+const tabLoginBtn = document.querySelector("#tab-login-btn");
+const tabRegisterBtn = document.querySelector("#tab-register-btn");
+const loginForm = document.querySelector("#login-form");
+const registerForm = document.querySelector("#register-form");
+const loginError = document.querySelector("#login-error");
 let forcedView = false;
 
 function setView(name, manual = false) {
@@ -32,36 +35,104 @@ function openAuthDialog() {
 
 window.addEventListener("vinylsync:auth_required", openAuthDialog);
 
-authForm?.addEventListener("submit", async (event) => {
+tabLoginBtn?.addEventListener("click", () => {
+  tabLoginBtn.classList.add("auth-tab--active");
+  tabRegisterBtn.classList.remove("auth-tab--active");
+  loginForm.hidden = false;
+  registerForm.hidden = true;
+  if (loginError) loginError.hidden = true;
+});
+
+tabRegisterBtn?.addEventListener("click", () => {
+  tabRegisterBtn.classList.add("auth-tab--active");
+  tabLoginBtn.classList.remove("auth-tab--active");
+  registerForm.hidden = false;
+  loginForm.hidden = true;
+  if (registerError) registerError.hidden = true;
+});
+
+loginForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const token = document.querySelector("#auth-token-input")?.value || "";
-  setAuthToken(token);
+  const username = document.querySelector("#login-username-input")?.value.trim() || "";
+  const password = document.querySelector("#login-password-input")?.value || "";
+
   try {
-    const response = await fetchWithAuth("/api/state");
-    if (response.ok) {
-      if (authError) authError.hidden = true;
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await response.json();
+    if (response.ok && data.token) {
+      setAuthToken(data.token);
+      if (loginError) loginError.hidden = true;
       authDialog?.close();
       stateStore.reconnect();
+      window.dispatchEvent(new CustomEvent("vinylsync:user_changed", { detail: data.user }));
     } else {
-      if (authError) {
-        authError.hidden = false;
-        authError.textContent = "Invalid token. Please try again.";
+      if (loginError) {
+        loginError.hidden = false;
+        loginError.textContent = data.detail || "Invalid credentials.";
       }
     }
   } catch {
-    if (authError) {
-      authError.hidden = false;
-      authError.textContent = "Unable to connect to server.";
+    if (loginError) {
+      loginError.hidden = false;
+      loginError.textContent = "Unable to connect to server.";
     }
   }
 });
 
-// Check if authentication is required on load
+registerForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const invite_code = document.querySelector("#register-invite-input")?.value.trim() || "";
+  const username = document.querySelector("#register-username-input")?.value.trim() || "";
+  const password = document.querySelector("#register-password-input")?.value || "";
+
+  try {
+    const response = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invite_code, username, password }),
+    });
+    const data = await response.json();
+    if (response.ok && data.token) {
+      setAuthToken(data.token);
+      if (registerError) registerError.hidden = true;
+      authDialog?.close();
+      stateStore.reconnect();
+      window.dispatchEvent(new CustomEvent("vinylsync:user_changed", { detail: data.user }));
+    } else {
+      if (registerError) {
+        registerError.hidden = false;
+        registerError.textContent = data.detail || "Registration failed.";
+      }
+    }
+  } catch {
+    if (registerError) {
+      registerError.hidden = false;
+      registerError.textContent = "Unable to connect to server.";
+    }
+  }
+});
+
+// Check if authentication is required or if token needs validation on load
 fetch("/api/health")
   .then((r) => r.json())
-  .then((data) => {
-    if (data.auth_required && !getAuthToken()) {
-      openAuthDialog();
+  .then(async (data) => {
+    if (data.auth_required) {
+      const token = getAuthToken();
+      if (!token) {
+        openAuthDialog();
+      } else {
+        const meRes = await fetchWithAuth("/api/auth/me");
+        if (meRes.ok) {
+          const meData = await meRes.json();
+          if (meData.user) {
+            window.dispatchEvent(new CustomEvent("vinylsync:user_changed", { detail: meData.user }));
+          }
+        }
+      }
     }
   })
   .catch(() => {});

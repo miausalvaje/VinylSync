@@ -153,27 +153,47 @@ def get_configured_auth_token() -> str | None:
     return token.strip() if token and token.strip() else None
 
 
+def is_auth_required() -> bool:
+    """Check if any authentication mechanism is active."""
+    if get_configured_auth_token():
+        return True
+    from vinyl_lyrics.server.users import DEFAULT_USER_MANAGER
+    return DEFAULT_USER_MANAGER.is_auth_enabled()
+
+
 def verify_token(
     provided_token: str | None,
     client_ip: str = "127.0.0.1",
     rate_limiter: AuthRateLimiter | None = None,
 ) -> bool:
-    """Verify an authentication token in constant time with optional rate limiting."""
-    expected = get_configured_auth_token()
-    if not expected:
-        return True
+    """Verify an authentication token (legacy token or signed JWT user session)."""
     limiter = rate_limiter or DEFAULT_RATE_LIMITER
     if limiter.is_locked(client_ip):
         return False
+
+    # If neither user auth nor legacy token is enabled, authentication is open
+    if not is_auth_required():
+        return True
+
     if not provided_token:
         limiter.record_failure(client_ip)
         return False
-    is_valid = secrets.compare_digest(provided_token, expected)
-    if is_valid:
+
+    # 1. Check signed user session JWT token
+    from vinyl_lyrics.server.users import verify_session_token
+    session = verify_session_token(provided_token)
+    if session is not None:
         limiter.record_success(client_ip)
-    else:
-        limiter.record_failure(client_ip)
-    return is_valid
+        return True
+
+    # 2. Check legacy VINYLSYNC_AUTH_TOKEN if configured
+    expected = get_configured_auth_token()
+    if expected and secrets.compare_digest(provided_token, expected):
+        limiter.record_success(client_ip)
+        return True
+
+    limiter.record_failure(client_ip)
+    return False
 
 
 class LocalSecurityMiddleware(BaseHTTPMiddleware):
@@ -228,11 +248,11 @@ class LocalSecurityMiddleware(BaseHTTPMiddleware):
                 if not origin_allowed:
                     return JSONResponse({"detail": "Origin is not allowed."}, status_code=403)
 
-        expected_token = get_configured_auth_token()
-        if expected_token:
+        if is_auth_required():
             path = request.url.path
-            is_exempt = path in {"/", "/favicon.svg", "/api/health"} or path.startswith(
-                ("/css/", "/js/")
+            is_exempt = (
+                path in {"/", "/favicon.svg", "/api/health"}
+                or path.startswith(("/css/", "/js/", "/api/auth/"))
             )
             if not is_exempt:
                 client_ip = effective_client_ip(

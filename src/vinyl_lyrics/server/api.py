@@ -11,7 +11,17 @@ from pydantic import ValidationError
 
 from vinyl_lyrics.audio.devices import list_audio_sources
 from vinyl_lyrics.server.models import TrackOverride
-from vinyl_lyrics.server.security import get_configured_auth_token
+from vinyl_lyrics.server.security import (
+    effective_client_ip,
+    get_configured_auth_token,
+    is_auth_required,
+    verify_token,
+)
+from vinyl_lyrics.server.users import (
+    DEFAULT_USER_MANAGER,
+    create_session_token,
+    verify_session_token,
+)
 from vinyl_lyrics.settings import UserSettings
 
 router = APIRouter()
@@ -19,12 +29,153 @@ WEB_ROOT = Path(__file__).resolve().parents[3] / "web"
 
 
 @router.get("/api/health")
-async def health() -> dict[str, Any]:
+async def health(request: Request) -> dict[str, Any]:
     """Return a basic service health response."""
     return {
         "status": "ok",
-        "auth_required": bool(get_configured_auth_token()),
+        "auth_required": is_auth_required(),
     }
+
+
+@router.post("/api/auth/login")
+async def login(request: Request) -> dict[str, Any]:
+    """Authenticate with username/password or legacy token."""
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid request payload.")
+
+    username = str(payload.get("username") or "").strip()
+    password = str(payload.get("password") or "")
+    token = str(payload.get("token") or "").strip()
+
+    peer_ip = request.client.host if request.client else None
+    client_ip = effective_client_ip(
+        request.headers,
+        peer_ip,
+        getattr(request.app.state, "trust_proxy", False),
+        getattr(request.app.state, "trusted_proxies", []),
+    )
+
+    # Allow direct legacy token login if provided
+    if token:
+        if verify_token(token, client_ip):
+            return {
+                "token": token,
+                "user": {"username": "token-user", "role": "admin"},
+            }
+        raise HTTPException(status_code=401, detail="Invalid token.")
+
+    # Username + password login
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="Username and password are required.")
+
+    user = DEFAULT_USER_MANAGER.verify_credentials(username, password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+
+    session_token = create_session_token(user.username, user.role)
+    return {
+        "token": session_token,
+        "user": {"username": user.username, "role": user.role},
+    }
+
+
+@router.post("/api/auth/register")
+async def register(request: Request) -> dict[str, Any]:
+    """Register a new user using an invitation code."""
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid request payload.")
+
+    username = str(payload.get("username") or "").strip()
+    password = str(payload.get("password") or "")
+    invite_code = str(payload.get("invite_code") or "").strip()
+
+    if not username or not password or not invite_code:
+        raise HTTPException(
+            status_code=400, detail="Username, password, and invitation code are required."
+        )
+
+    try:
+        user = DEFAULT_USER_MANAGER.register_user(username, password, invite_code)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    session_token = create_session_token(user.username, user.role)
+    return {
+        "token": session_token,
+        "user": {"username": user.username, "role": user.role},
+    }
+
+
+def _get_current_user(request: Request) -> dict[str, Any]:
+    """Extract authenticated session from request Authorization header."""
+    auth_header = request.headers.get("authorization", "")
+    token = ""
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+    session = verify_session_token(token)
+    if session:
+        return {"username": session.get("sub", ""), "role": session.get("role", "user")}
+    # Fallback: if legacy token is used, grant admin role
+    legacy = get_configured_auth_token()
+    if legacy and token == legacy:
+        return {"username": "admin", "role": "admin"}
+    raise HTTPException(status_code=401, detail="Authentication required.")
+
+
+@router.get("/api/auth/me")
+async def get_me(request: Request) -> dict[str, Any]:
+    """Return currently authenticated user information."""
+    if not is_auth_required():
+        return {"authenticated": False, "auth_required": False, "user": None}
+    try:
+        user = _get_current_user(request)
+        return {"authenticated": True, "auth_required": True, "user": user}
+    except HTTPException:
+        return {"authenticated": False, "auth_required": True, "user": None}
+
+
+@router.post("/api/invitations")
+async def create_invitation(request: Request) -> dict[str, Any]:
+    """Create a new invitation code (Admin only)."""
+    user = _get_current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can create invitations.")
+    code = DEFAULT_USER_MANAGER.create_invitation(created_by=user["username"])
+    return {"code": code}
+
+
+@router.get("/api/invitations")
+async def list_invitations(request: Request) -> list[dict[str, Any]]:
+    """List invitations (Admin only)."""
+    user = _get_current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can view invitations.")
+    records = DEFAULT_USER_MANAGER.list_invitations()
+    return [
+        {
+            "code": r.code,
+            "created_by": r.created_by,
+            "created_at": r.created_at,
+            "used_by": r.used_by,
+            "used_at": r.used_at,
+            "is_used": r.is_used,
+        }
+        for r in records
+    ]
+
+
+@router.delete("/api/invitations/{code}")
+async def delete_invitation(code: str, request: Request) -> dict[str, Any]:
+    """Delete an unused invitation (Admin only)."""
+    user = _get_current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can delete invitations.")
+    deleted = DEFAULT_USER_MANAGER.delete_invitation(code)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Invitation not found or already used.")
+    return {"deleted": True, "code": code}
 
 
 @router.get("/api/sources")
