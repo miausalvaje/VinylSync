@@ -517,6 +517,20 @@ class ApplicationRuntime:
             await self.broadcast({"event": "error", "state": self.status, "message": str(error)})
             return
         while True:
+            # Suspend/idle if no active capturer (for browser source) or no clients connected
+            is_browser_source = self.capture.source_info.source_id == "browser"
+            if is_browser_source and not self.has_capturer and not self.clients:
+                await asyncio.sleep(0.5)
+                continue
+            if (
+                is_browser_source
+                and not self.has_capturer
+                and not self.clients
+                and not self.spectrum_clients
+            ):
+                await asyncio.sleep(0.5)
+                continue
+
             try:
                 samples = self.capture.latest_samples(0.25)
                 level = self.spectrum.analyze_level(samples, self.settings.gain_db)
@@ -554,6 +568,10 @@ class ApplicationRuntime:
     async def spectrum_loop(self) -> None:
         """Analyze and broadcast spectrum data at approximately 40 FPS."""
         while True:
+            # Sleep if no spectrum clients are connected
+            if not self.spectrum_clients:
+                await asyncio.sleep(0.2)
+                continue
             try:
                 samples = self.capture.latest_samples(2048 / self.capture.sample_rate)
                 self._last_metrics = self.spectrum.analyze(samples, self.settings.gain_db)
@@ -613,19 +631,25 @@ def create_app(config: dict[str, Any] | None = None) -> FastAPI:
             server_host,
         )
 
+    from vinyl_lyrics.server.session import SessionManager
+
+    session_manager = SessionManager(settings, default_runtime=runtime)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.runtime = runtime
+        app.state.session_manager = session_manager
         app.state.allowed_hosts = hosts
         app.state.allowed_origins = origins
         app.state.trust_proxy = trust_proxy
         app.state.trusted_proxies = trusted_proxies
         await runtime.start()
         yield
-        await runtime.stop()
+        await session_manager.stop_all()
 
     app = FastAPI(title="VinylSync", lifespan=lifespan)
     app.state.runtime = runtime
+    app.state.session_manager = session_manager
     app.state.allowed_hosts = hosts
     app.state.allowed_origins = origins
     app.state.trust_proxy = trust_proxy

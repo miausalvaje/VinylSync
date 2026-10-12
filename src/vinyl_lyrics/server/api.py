@@ -238,6 +238,19 @@ async def delete_invitation(code: str, request: Request) -> dict[str, Any]:
     return {"deleted": True, "code": code}
 
 
+def _get_request_runtime(request: Request) -> Any:
+    """Resolve the ApplicationRuntime instance for the current request's session."""
+    session_mgr = getattr(request.app.state, "session_manager", None)
+    if session_mgr is None:
+        return request.app.state.runtime
+    try:
+        user = _get_current_user(request)
+        user_key = user.get("username") or "default"
+    except HTTPException:
+        user_key = "default"
+    return session_mgr.get_runtime(user_key)
+
+
 @router.get("/api/sources")
 async def sources() -> list[dict[str, Any]]:
     """List available input and loopback sources."""
@@ -247,22 +260,24 @@ async def sources() -> list[dict[str, Any]]:
 @router.get("/api/state")
 async def state(request: Request) -> dict[str, Any]:
     """Return the current player state."""
-    runtime = request.app.state.runtime
+    runtime = _get_request_runtime(request)
     return runtime.public_state()
 
 
 @router.get("/api/settings")
 async def get_settings(request: Request) -> dict[str, Any]:
     """Return persisted user settings."""
-    return request.app.state.runtime.settings.model_dump()
+    runtime = _get_request_runtime(request)
+    return runtime.settings.model_dump()
 
 
 @router.put("/api/settings")
 async def update_settings(request: Request) -> dict[str, Any]:
     """Validate and apply user settings immediately."""
+    runtime = _get_request_runtime(request)
     try:
         settings = UserSettings.model_validate(await request.json())
-        result = await request.app.state.runtime.apply_settings(settings)
+        result = await runtime.apply_settings(settings)
         return result.model_dump()
     except ValidationError as error:
         raise HTTPException(status_code=422, detail=error.errors()) from error
@@ -273,13 +288,14 @@ async def update_settings(request: Request) -> dict[str, Any]:
 @router.patch("/api/settings")
 async def patch_settings(request: Request) -> dict[str, Any]:
     """Merge, validate, and apply a partial settings update."""
+    runtime = _get_request_runtime(request)
     try:
         payload = await request.json()
         if not isinstance(payload, dict):
             raise HTTPException(status_code=422, detail="Settings payload must be an object.")
-        current = request.app.state.runtime.settings.model_dump()
+        current = runtime.settings.model_dump()
         settings = UserSettings.model_validate({**current, **payload})
-        result = await request.app.state.runtime.apply_settings(settings)
+        result = await runtime.apply_settings(settings)
         return result.model_dump()
     except ValidationError as error:
         raise HTTPException(status_code=422, detail=error.errors()) from error
@@ -290,12 +306,13 @@ async def patch_settings(request: Request) -> dict[str, Any]:
 @router.post("/api/source")
 async def change_source(request: Request) -> dict[str, Any]:
     """Switch the audio source without restarting the application."""
+    runtime = _get_request_runtime(request)
     payload = await request.json()
     source_id = payload.get("source_id")
     try:
-        settings = request.app.state.runtime.settings.model_copy(update={"source_id": source_id})
-        await request.app.state.runtime.apply_settings(settings)
-        return request.app.state.runtime.public_state()
+        settings = runtime.settings.model_copy(update={"source_id": source_id})
+        await runtime.apply_settings(settings)
+        return runtime.public_state()
     except (OSError, RuntimeError, ValueError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -303,21 +320,24 @@ async def change_source(request: Request) -> dict[str, Any]:
 @router.get("/api/lyrics/search")
 async def lyrics_search(request: Request, q: str = Query(min_length=1)) -> list[dict[str, Any]]:
     """Search LRCLIB for manual track correction candidates."""
-    return await request.app.state.runtime.lyrics_client.search(q)
+    runtime = _get_request_runtime(request)
+    return await runtime.lyrics_client.search(q)
 
 
 @router.post("/api/track/override")
 async def track_override(request: Request, override: TrackOverride) -> dict[str, Any]:
     """Lock a manually selected track."""
-    await request.app.state.runtime.override_track(override)
-    return request.app.state.runtime.public_state()
+    runtime = _get_request_runtime(request)
+    await runtime.override_track(override)
+    return runtime.public_state()
 
 
 @router.post("/api/track/unlock")
 async def track_unlock(request: Request) -> dict[str, Any]:
     """Unlock the current track for automatic recognition."""
-    request.app.state.runtime.locked = False
-    return request.app.state.runtime.public_state()
+    runtime = _get_request_runtime(request)
+    runtime.locked = False
+    return runtime.public_state()
 
 
 @router.get("/", include_in_schema=False)

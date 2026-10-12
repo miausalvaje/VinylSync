@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import time
+from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -53,8 +54,10 @@ class AudioTokenBucket:
 async def authenticate_ws(websocket: WebSocket) -> bool:
     """Validate WebSocket authentication via subprotocol or first message."""
     from vinyl_lyrics.server.security import is_auth_required
+    from vinyl_lyrics.server.users import verify_session_token
 
     if not is_auth_required():
+        websocket.scope["user_key"] = "default"
         return True
     peer_ip = effective_client_ip(
         websocket.headers,
@@ -65,6 +68,8 @@ async def authenticate_ws(websocket: WebSocket) -> bool:
     sub_token = extract_ws_subprotocol_token(websocket)
     if sub_token:
         if verify_token(sub_token, peer_ip):
+            session = verify_session_token(sub_token)
+            websocket.scope["user_key"] = session.get("sub", "admin") if session else "admin"
             return True
         await websocket.close(code=1008, reason="Authentication failed")
         return False
@@ -77,6 +82,8 @@ async def authenticate_ws(websocket: WebSocket) -> bool:
             and data.get("type") == "auth"
             and verify_token(data.get("token"), peer_ip)
         ):
+            session = verify_session_token(data.get("token"))
+            websocket.scope["user_key"] = session.get("sub", "admin") if session else "admin"
             await websocket.send_json({"type": "auth_ok"})
             return True
     except Exception:
@@ -84,6 +91,15 @@ async def authenticate_ws(websocket: WebSocket) -> bool:
     verify_token(None, peer_ip)
     await websocket.close(code=1008, reason="Authentication failed")
     return False
+
+
+async def _get_ws_runtime(websocket: WebSocket) -> Any:
+    """Get the ApplicationRuntime associated with the WebSocket's session."""
+    session_mgr = getattr(websocket.app.state, "session_manager", None)
+    if session_mgr is None:
+        return websocket.app.state.runtime
+    key = websocket.scope.get("user_key", "default")
+    return await session_mgr.get_or_create_runtime(key)
 
 
 @router.websocket("/ws")
@@ -101,14 +117,19 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     if not await authenticate_ws(websocket):
         return
 
-    runtime = websocket.app.state.runtime
+    runtime = await _get_ws_runtime(websocket)
     runtime.clients.add(websocket)
     try:
         await websocket.send_json(runtime.public_state())
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
+        pass
+    finally:
         runtime.clients.discard(websocket)
+        session_mgr = getattr(websocket.app.state, "session_manager", None)
+        if session_mgr is not None:
+            await session_mgr.cleanup_idle_sessions()
 
 
 @router.websocket("/ws/spectrum")
@@ -126,13 +147,18 @@ async def spectrum_endpoint(websocket: WebSocket) -> None:
     if not await authenticate_ws(websocket):
         return
 
-    runtime = websocket.app.state.runtime
+    runtime = await _get_ws_runtime(websocket)
     runtime.spectrum_clients.add(websocket)
     try:
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
+        pass
+    finally:
         runtime.spectrum_clients.discard(websocket)
+        session_mgr = getattr(websocket.app.state, "session_manager", None)
+        if session_mgr is not None:
+            await session_mgr.cleanup_idle_sessions()
 
 
 @router.websocket("/ws/audio")
@@ -150,7 +176,7 @@ async def audio_stream_endpoint(websocket: WebSocket) -> None:
     if not await authenticate_ws(websocket):
         return
 
-    runtime = websocket.app.state.runtime
+    runtime = await _get_ws_runtime(websocket)
 
     # 1. Expect Hello handshake
     try:
@@ -248,3 +274,6 @@ async def audio_stream_endpoint(websocket: WebSocket) -> None:
             and runtime.active_audio_sender.websocket == websocket
         ):
             await runtime.disconnect_audio_sender(reason="disconnected")
+        session_mgr = getattr(websocket.app.state, "session_manager", None)
+        if session_mgr is not None:
+            await session_mgr.cleanup_idle_sessions()
