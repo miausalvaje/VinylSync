@@ -73,7 +73,7 @@ class SessionManager:
                 keys_to_remove.append(key)
 
             for key in keys_to_remove:
-                runtime = self.sessions.pop(key, None)
+                runtime = self.sessions.pop(key)
                 if runtime is not None:
                     logger.info("Cleaning up idle session '%s'", key)
                     await runtime.stop()
