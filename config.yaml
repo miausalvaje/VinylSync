@@ -28,6 +28,8 @@ recognition:
   idle_timeout_seconds: 20
   # Minimum new audio sample length before a recognition attempt can restart after silence.
   min_sample_seconds: 5
+  # Audio window length (in seconds) sent to the recognition provider.
+  recognition_window_seconds: 12
   shazam:
     enabled: true
   acrcloud:

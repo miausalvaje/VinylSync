@@ -98,6 +98,7 @@ class ApplicationRuntime:
         )
         self.idle_timeout_seconds = float(recognition.get("idle_timeout_seconds", 20.0))
         self.min_sample_seconds = float(recognition.get("min_sample_seconds", 5.0))
+        self.recognition_window_seconds = float(recognition.get("recognition_window_seconds", 12.0))
         self.spectrum = SpectrumAnalyzer(self.capture.sample_rate)
         self.clients: set[Any] = set()
         self.spectrum_clients: set[Any] = set()
@@ -424,6 +425,7 @@ class ApplicationRuntime:
             snapshot = self.capture.recognition_snapshot(
                 since=since,
                 min_seconds=min_sample_seconds,
+                seconds=self.recognition_window_seconds,
             )
             if snapshot is None:
                 actions = sup.handle_recognition_no_snapshot(background=background)

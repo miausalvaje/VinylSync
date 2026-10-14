@@ -59,7 +59,11 @@ class LRCLIBClient:
 
     @staticmethod
     def _match_score(
-        candidate: dict[str, Any], title: str, artist: str, duration: float | None
+        candidate: dict[str, Any],
+        title: str,
+        artist: str,
+        duration: float | None,
+        album: str | None = None,
     ) -> float:
         score = 0.0
         candidate_title = LRCLIBClient._normalize(
@@ -70,6 +74,9 @@ class LRCLIBClient:
         )
         candidate_artist = LRCLIBClient._normalize(
             candidate.get("artistName") or candidate.get("artist_name") or candidate.get("artist")
+        )
+        candidate_album = LRCLIBClient._normalize(
+            candidate.get("albumName") or candidate.get("album_name") or candidate.get("album")
         )
         candidate_duration = LRCLIBClient._normalize_duration(
             candidate.get("duration") or candidate.get("duration_ms")
@@ -92,6 +99,15 @@ class LRCLIBClient:
                 or candidate_artist.casefold() in artist.casefold()
             ):
                 score += 2.0
+
+        if album and candidate_album:
+            if candidate_album.casefold() == album.casefold():
+                score += 3.0
+            elif (
+                album.casefold() in candidate_album.casefold()
+                or candidate_album.casefold() in album.casefold()
+            ):
+                score += 1.5
 
         if candidate_duration is not None and duration is not None:
             delta = abs(candidate_duration - duration)
@@ -139,6 +155,7 @@ class LRCLIBClient:
         if duration is not None:
             params["duration"] = int(round(float(duration)))
 
+        # Try GET with all params first
         try:
             match = await self._request_json("/api/get", params)
         except httpx.HTTPError:
@@ -160,6 +177,29 @@ class LRCLIBClient:
                 if result is not None:
                     return result
 
+        # Try GET without duration if duration was provided (duration mismatch)
+        if duration is not None:
+            params_no_duration = {k: v for k, v in params.items() if k != "duration"}
+            try:
+                match_no_dur = await self._request_json("/api/get", params_no_duration)
+            except httpx.HTTPError:
+                match_no_dur = None
+            if isinstance(match_no_dur, dict):
+                result = self._normalize_lyrics_result(
+                    match_no_dur, artist_name, track_name, album_name, duration
+                )
+                if result is not None:
+                    return result
+            elif isinstance(match_no_dur, list):
+                for candidate in match_no_dur:
+                    if not isinstance(candidate, dict):
+                        continue
+                    result = self._normalize_lyrics_result(
+                        candidate, artist_name, track_name, album_name, duration
+                    )
+                    if result is not None:
+                        return result
+
         clean_track = re.sub(r"\s*[\(\[].*?[\)\]]", "", track_name).strip()
         if clean_track and clean_track.casefold() != track_name.casefold():
             clean_params = dict(params)
@@ -178,10 +218,28 @@ class LRCLIBClient:
         search_params: list[dict[str, Any]] = [
             {"track_name": track_name, "artist_name": artist_name},
         ]
+        if album_name:
+            search_params.append(
+                {
+                    "track_name": track_name,
+                    "artist_name": artist_name,
+                    "album_name": album_name,
+                }
+            )
         if clean_track and clean_track.casefold() != track_name.casefold():
             search_params.append({"track_name": clean_track, "artist_name": artist_name})
             search_params.append({"q": f"{artist_name} {clean_track}".strip()})
+            if album_name:
+                search_params.append(
+                    {
+                        "track_name": clean_track,
+                        "artist_name": artist_name,
+                        "album_name": album_name,
+                    }
+                )
         search_params.append({"q": f"{artist_name} {track_name}".strip()})
+        if album_name:
+            search_params.append({"q": f"{artist_name} {track_name} {album_name}".strip()})
 
         for search_params_item in search_params:
             try:
@@ -192,9 +250,12 @@ class LRCLIBClient:
             if not candidates:
                 continue
 
+            def score_fn(item: dict[str, Any]) -> float:
+                return self._match_score(item, track_name, artist_name, duration, album_name)
+
             best_candidate = max(
                 candidates,
-                key=lambda item: self._match_score(item, track_name, artist_name, duration),
+                key=score_fn,
                 default=None,
             )
             if best_candidate is None:
@@ -205,6 +266,41 @@ class LRCLIBClient:
             )
             if normalized is not None:
                 return normalized
+
+        # Final fallback: search without album if album was provided
+        if album_name:
+            fallback_params = [
+                {"track_name": track_name, "artist_name": artist_name},
+                {"q": f"{artist_name} {track_name}".strip()},
+            ]
+            if clean_track and clean_track.casefold() != track_name.casefold():
+                fallback_params.append({"track_name": clean_track, "artist_name": artist_name})
+                fallback_params.append({"q": f"{artist_name} {clean_track}".strip()})
+            for search_params_item in fallback_params:
+                try:
+                    search_results = await self._request_json("/api/search", search_params_item)
+                except httpx.HTTPError:
+                    continue
+                candidates = search_results if isinstance(search_results, list) else []
+                if not candidates:
+                    continue
+
+                def score_fn(item: dict[str, Any]) -> float:
+                    return self._match_score(item, track_name, artist_name, duration, None)
+
+                best_candidate = max(
+                    candidates,
+                    key=score_fn,
+                    default=None,
+                )
+                if best_candidate is None:
+                    continue
+
+                normalized = self._normalize_lyrics_result(
+                    best_candidate, artist_name, track_name, album_name, duration
+                )
+                if normalized is not None:
+                    return normalized
 
         return None
 

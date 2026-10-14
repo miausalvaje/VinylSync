@@ -19,6 +19,7 @@ export function setupLyricsSync(store) {
       activeIndex = -1;
       isManualScrolling = false;
       currentScrollOffset = 0;
+      lyricsEndedAt = null;
       container.classList.remove("lyrics-lines--plain");
       container.innerHTML = '<p class="lyrics-placeholder">No lyrics available.</p>';
       container.style.setProperty("--lyrics-offset", "0px");
@@ -31,6 +32,7 @@ export function setupLyricsSync(store) {
     activeIndex = -1;
     isManualScrolling = false;
     currentScrollOffset = 0;
+    lyricsEndedAt = null;
     container.style.setProperty("--lyrics-offset", "0px");
     container.classList.toggle("lyrics-lines--plain", !isSynced);
     renderLines();
@@ -41,6 +43,8 @@ export function setupLyricsSync(store) {
 
   let activeElement = null;
   let nearElements = [];
+  let lyricsEndedAt = null;
+  const LYRICS_END_GRACE_SECONDS = 3;
 
   function renderLines() {
     activeElement = null;
@@ -167,7 +171,21 @@ export function setupLyricsSync(store) {
   function tick() {
     if (isSynced && lines.length) {
       const elapsed = performance.now() / 1000 - startedAt;
+      const lastLyricTime = lines[lines.length - 1].time;
       updateActiveLine(findActiveIndex(elapsed));
+
+      // Check if we've passed the last lyric timestamp + grace period (3 seconds)
+      if (elapsed >= lastLyricTime + LYRICS_END_GRACE_SECONDS) {
+        lines = [];
+        isSynced = false;
+        activeIndex = -1;
+        lyricsEndedAt = null;
+        container.classList.remove("lyrics-lines--plain");
+        container.innerHTML = '<p class="lyrics-placeholder">Waiting for next track…</p>';
+        container.style.setProperty("--lyrics-offset", "0px");
+      } else {
+        lyricsEndedAt = null;
+      }
     }
     requestAnimationFrame(tick);
   }
@@ -177,11 +195,23 @@ export function setupLyricsSync(store) {
 export function parseLrc(text) {
   return text.split(/\r?\n/).flatMap((line) => {
     const matches = [...line.matchAll(/\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]/g)];
-    const textStart = matches.length ? matches[matches.length - 1].index + matches[matches.length - 1][0].length : 0;
-    return matches.map((match) => ({
-      time: Number(match[1]) * 60 + Number(match[2]) + Number((match[3] || "0").padEnd(3, "0")) / 1000,
-      text: line.slice(textStart).trim(),
-    }));
+    if (!matches.length) {
+      return [];
+    }
+    const results = [];
+    for (let i = 0; i < matches.length; i++) {
+      const match = matches[i];
+      const start = match.index + match[0].length;
+      const end = i + 1 < matches.length ? matches[i + 1].index : line.length;
+      const segment = line.slice(start, end).trim();
+      // Skip metadata tags like [ti:...], [ar:...], etc.
+      if (segment && segment.startsWith("[") && /^\[[A-Za-z]+:.*\]$/.test(segment)) {
+        continue;
+      }
+      const time = Number(match[1]) * 60 + Number(match[2]) + Number((match[3] || "0").padEnd(3, "0")) / 1000;
+      results.push({ time, text: segment });
+    }
+    return results;
   }).sort((a, b) => a.time - b.time);
 }
 
