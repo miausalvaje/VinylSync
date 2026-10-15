@@ -199,6 +199,10 @@ class ApplicationRuntime:
                 pass
             if isinstance(self.capture.source, BrowserStreamSource):
                 self.capture.source.reset_stream(None, self.capture.sample_rate)
+                # Drop stale audio: without this the detector keeps reading
+                # the pre-disconnect buffer as live signal, masking the gap
+                # (no silence edge) and misattributing old audio to new songs.
+                self.capture.clear_buffer()
             if self.capture.source_info.source_id == "browser":
                 self.status = "no_source"
             await self.broadcast({"event": "capturer", **self.capturer_state()})

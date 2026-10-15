@@ -236,6 +236,9 @@ async def audio_stream_endpoint(websocket: WebSocket) -> None:
     runtime.active_audio_sender = session
     if isinstance(runtime.capture.source, BrowserStreamSource):
         runtime.capture.source.reset_stream(client_id, sample_rate)
+        # Start from empty: the buffer may hold pre-disconnect audio from a
+        # previous sender that must not be attributed to the new stream.
+        runtime.capture.clear_buffer()
 
     if runtime.status == "no_source":
         runtime.status = "listening"

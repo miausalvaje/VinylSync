@@ -361,6 +361,53 @@ def test_three_consecutive_failures_without_song_transitions_to_idle() -> None:
     assert actions[0].event == "idle"
 
 
+def test_stale_track_with_signal_resumes_playing_and_verifies() -> None:
+    """listening + stale track + live signal must recover, not wedge.
+
+    Regression for: first song detected, page reloaded, mic re-shared.
+    The runtime landed on listening + stale track with no silence edge, so
+    neither the foreground branch (needs no track) nor the verification
+    branch (needs playing) ever fired again.
+    """
+    clock = FakeClock(1000.0)
+    player = PlayerState()
+    player.set_track("Song A", "Artist A", duration=200.0, offset_seconds=0.0)
+    assert player.current_track is not None
+    player.current_track.started_at_monotonic = clock() - 90.0
+    supervisor = PlaybackSupervisor(player=player, clock=clock, status="listening")
+
+    steady = SilenceState(active=True, became_active=False, became_silent=False, silent_for=0.0)
+    actions = supervisor.handle_silence(steady, recognition_busy=False)
+
+    assert supervisor.status == "playing"
+    assert player.current_track is not None
+    assert len(actions) == 1
+    assert isinstance(actions[0], StartRecognition)
+    assert actions[0].background is True
+
+    # Next tick must not stack another verification while one is in flight.
+    actions = supervisor.handle_silence(steady, recognition_busy=True)
+    assert actions == []
+    assert supervisor.status == "playing"
+
+
+def test_stale_track_without_signal_is_discarded() -> None:
+    """listening + stale track + silence must clear to idle."""
+    clock = FakeClock(1000.0)
+    player = PlayerState()
+    player.set_track("Song A", "Artist A", duration=200.0, offset_seconds=0.0)
+    supervisor = PlaybackSupervisor(player=player, clock=clock, status="listening")
+
+    quiet = SilenceState(active=False, became_active=False, became_silent=False, silent_for=5.0)
+    actions = supervisor.handle_silence(quiet, recognition_busy=False)
+
+    assert player.current_track is None
+    assert supervisor.status == "idle"
+    assert len(actions) == 1
+    assert isinstance(actions[0], BroadcastEvent)
+    assert actions[0].event == "idle"
+
+
 def test_gapless_signal_without_edge_still_triggers_recognition() -> None:
     """Continuous audio with no became_active edge must still identify.
 

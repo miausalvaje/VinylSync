@@ -2,7 +2,17 @@
 
 import numpy as np
 
-from vinyl_lyrics.audio.processing import SilenceDetector, SpectrumAnalyzer
+from vinyl_lyrics.audio.processing import CircularAudioBuffer, SilenceDetector, SpectrumAnalyzer
+
+
+def test_circular_buffer_clear_discards_stale_audio() -> None:
+    buffer = CircularAudioBuffer(sample_rate=44100, seconds=15.0)
+    buffer.append(np.ones(4410, dtype=np.float32))
+    assert buffer.latest(1.0).size > 0
+    buffer.clear()
+    assert buffer.latest(1.0).size == 0
+    buffer.append(np.zeros(100, dtype=np.float32))
+    assert buffer.latest(1.0).size == 100
 
 
 def test_silence_detector_uses_hysteresis_and_minimum_times() -> None:

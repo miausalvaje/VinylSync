@@ -89,6 +89,35 @@ class PlaybackSupervisor:
         actions: list[SupervisorAction] = []
         now = self.clock()
 
+        # 0. Recover incoherent leftover: a track is set but the status is
+        # neither playing nor identifying (e.g. a browser stream was re-shared
+        # after a reload with a stale track, landing on listening + track).
+        # Without this, neither the foreground branch (needs no track) nor
+        # the verification branch (needs playing) ever fires again.
+        if self.player.current_track is not None and self.status not in {
+            "playing",
+            "identifying",
+        }:
+            if silence.active:
+                self.status = "playing"
+                self.silence_type = None
+                self.failed_attempts = 0
+                self.next_recognition_at = 0.0
+                if not recognition_busy:
+                    actions.append(
+                        StartRecognition(
+                            since=self.signal_resumed_at,
+                            min_sample_seconds=self.min_sample_seconds,
+                            background=True,
+                        )
+                    )
+            else:
+                self.player.current_track = None
+                self.locked = False
+                self.silence_type = None
+                self.status = "idle"
+                actions.append(BroadcastEvent("idle"))
+
         # Track how long signal has been continuously present, independent of
         # transitions. signal_resumed_at is only set on became_active edges
         # and cleared on every identification, so a gapless track change (no

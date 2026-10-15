@@ -93,12 +93,19 @@ class ContinuousAudioCapture:
         self.source = replacement
         self.source.start(self._on_audio)
         self._received_samples = 0
+        self._last_audio_monotonic = 0.0
+        self.buffer.clear()
         logger.info("Audio source changed to %s (%s)", info.name, info.source_id)
         return info
 
     def latest_samples(self, seconds: float) -> np.ndarray:
         """Return the latest buffered mono samples."""
         return self.buffer.latest(seconds)
+
+    def clear_buffer(self) -> None:
+        """Discard buffered audio after a stream discontinuity."""
+        self.buffer.clear()
+        self._last_audio_monotonic = 0.0
 
     def recognition_wav(self, seconds: float = 8.0) -> bytes:
         """Return the latest buffered recognition window as WAV."""

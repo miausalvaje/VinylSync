@@ -57,6 +57,12 @@ class CircularAudioBuffer:
             self._write_index = end % self.max_samples
             self._size = min(self.max_samples, self._size + values.size)
 
+    def clear(self) -> None:
+        """Discard all buffered audio (e.g. after a stream discontinuity)."""
+        with self._lock:
+            self._write_index = 0
+            self._size = 0
+
     def latest(self, seconds: float) -> np.ndarray:
         count = max(1, int(seconds * self.sample_rate))
         count = min(count, self.max_samples)
