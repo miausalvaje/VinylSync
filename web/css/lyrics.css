@@ -8,87 +8,53 @@
   transition: background-color 0.8s ease, background-image 0.8s ease;
 }
 
-/* Mobile-first base styles (phones in portrait) */
 .lyrics-shell {
   position: relative;
   z-index: 1;
-  display: flex;
-  flex-direction: column-reverse; /* Lyrics on top, artwork on bottom for mobile */
+  display: grid;
+  grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.4fr);
+  gap: clamp(2rem, 5vw, 6rem);
   align-items: center;
-  justify-content: center;
   height: 100%;
-  padding: 2rem 1.25rem 3rem;
-  background: linear-gradient(180deg, #090a0edd, #090a0e99);
-  gap: 1.5rem;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-.track-column {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  width: 100%;
-  order: 2; /* Artwork at bottom on mobile */
+  padding: 4vw 6vw;
+  background: linear-gradient(90deg, #090a0edd, #090a0e99);
 }
 
 .track-artwork {
-  width: min(70vw, 280px);
+  width: min(32vw, 380px);
   aspect-ratio: 1;
   object-fit: cover;
-  border-radius: 16px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-}
-
-.track-artwork:hover {
-  transform: scale(1.02);
-  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.6);
+  border-radius: 12px;
+  box-shadow: 0 24px 70px #0008;
 }
 
 .track-artist {
   color: #c1c3cc;
-  margin: 0.75rem 0 0.25rem;
-  font-size: 1rem;
-  font-weight: 400;
+  margin: 1.5rem 0 0.3rem;
+  font-size: 1.15rem;
 }
 
 .track-column h1 {
-  font-size: clamp(1.5rem, 5vw, 2.25rem);
-  margin: 0 0 0.75rem;
-  line-height: 1.25;
+  font-size: clamp(1.8rem, 3vw, 3rem);
+  margin: 0 0 1.5rem;
+  line-height: 1.2;
   word-break: break-word;
-  font-weight: 700;
-}
-
-.track-actions {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-  min-height: 2.5rem;
-  margin-top: 0.5rem;
 }
 
 .lyrics-column {
   position: relative;
-  width: 100%;
-  max-width: 100%;
-  height: auto;
-  min-height: 50vh;
+  height: 74vh;
   overflow: hidden;
-  mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent);
-  -webkit-mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, black 10%, black 88%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 10%, black 88%, transparent);
   contain: layout paint;
-  order: 1; /* Lyrics at top on mobile */
 }
 
 .lyrics-lines {
   position: relative;
   box-sizing: border-box;
   width: 100%;
-  padding: 40vh 1.25rem 55vh 1.25rem;
+  padding: 32vh 2.5rem 55vh 2.5rem;
   transform: translate3d(0, calc(-1 * var(--lyrics-offset, 0px)), 0);
   transition: transform 0.85s cubic-bezier(0.16, 1, 0.3, 1);
   will-change: transform;
@@ -98,11 +64,11 @@
 
 .lyrics-lines p {
   color: #ffffff;
-  font-size: calc(clamp(1.25rem, 4vw, 1.75rem) * var(--lyrics-scale, 1));
+  font-size: calc(clamp(1.3rem, 2.3vw, 2.6rem) * var(--lyrics-scale, 1));
   font-weight: 700;
-  line-height: 1.5;
-  opacity: 0.28;
-  margin: 1.4rem 0;
+  line-height: 1.42;
+  opacity: 0.26;
+  margin: 1.6rem 0;
   transform-origin: left center;
   transform: translate3d(0, 0, 0);
   transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
@@ -121,18 +87,18 @@
 }
 
 .lyrics-lines p.lyrics-line--near {
-  opacity: 0.55;
+  opacity: 0.58;
 }
 
 .lyrics-lines p.lyrics-line--active {
   opacity: 1 !important;
-  transform: translate3d(0, 0, 0) scale(1.02) !important;
+  transform: translate3d(0, 0, 0) scale(1.025) !important;
   color: #ffffff;
-  text-shadow: 0 0 24px rgba(255, 255, 255, 0.28);
+  text-shadow: 0 0 28px rgba(255, 255, 255, 0.3);
 }
 
 .lyrics-lines:not(.lyrics-lines--plain) p:not(.lyrics-line--active):hover {
-  opacity: 0.8;
+  opacity: 0.85;
   transform: translate3d(0, 0, 0) scale(1.01);
 }
 
@@ -148,227 +114,47 @@
   filter: none !important;
   opacity: 1 !important;
   cursor: default !important;
-  text-align: center;
-  margin: 2rem 0;
 }
 
 .instrumental-pause {
   display: inline-block;
-  letter-spacing: 0.3em;
-  opacity: 0.6;
+  letter-spacing: 0.35em;
+  opacity: 0.65;
 }
 
-/* Tablet and small desktop (landscape phones, tablets) */
-@media (min-width: 540px) {
-  .lyrics-shell {
-    padding: 3rem 2.5rem;
-    gap: 2rem;
-  }
-
-  .track-artwork {
-    width: min(55vw, 320px);
-    border-radius: 14px;
-  }
-
-  .track-artist {
-    font-size: 1.1rem;
-    margin: 1rem 0 0.35rem;
-  }
-
-  .track-column h1 {
-    font-size: clamp(1.75rem, 4vw, 2.75rem);
-  }
-
-  .lyrics-lines {
-    padding: 35vh 2rem 50vh 2rem;
-  }
-
-  .lyrics-lines p {
-    font-size: calc(clamp(1.4rem, 3vw, 2rem) * var(--lyrics-scale, 1));
-    margin: 1.5rem 0;
-  }
+.track-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2.5rem;
 }
 
-/* Desktop - side-by-side layout */
-@media (min-width: 860px) {
+@media (max-width: 860px) {
   .lyrics-shell {
-    display: grid;
-    grid-template-columns: minmax(260px, 0.75fr) minmax(0, 1.5fr);
-    grid-template-rows: 1fr;
-    flex-direction: row;
-    align-items: center;
-    justify-content: center;
-    gap: clamp(2.5rem, 6vw, 7rem);
-    padding: 4vw 6vw;
-    background: linear-gradient(90deg, #090a0edd, #090a0e99);
-    overflow-y: hidden;
-    height: 100%;
-  }
-
-  .track-column {
-    flex-direction: column;
-    align-items: flex-start;
-    text-align: left;
-    width: auto;
-    order: 0; /* Reset order */
-  }
-
-  .track-actions {
-    justify-content: flex-start;
-  }
-
-  .track-artwork {
-    width: min(30vw, 380px);
-    border-radius: 12px;
-    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
-  }
-
-  .track-artist {
-    margin: 1.25rem 0 0.3rem;
-    font-size: 1.15rem;
-  }
-
-  .track-column h1 {
-    font-size: clamp(2rem, 3.5vw, 3.25rem);
-    margin: 0 0 1.5rem;
-  }
-
-  .lyrics-column {
-    height: 74vh;
-    min-height: 0;
-    order: 0;
-    mask-image: linear-gradient(to bottom, transparent, black 10%, black 88%, transparent);
-    -webkit-mask-image: linear-gradient(to bottom, transparent, black 10%, black 88%, transparent);
-  }
-
-  .lyrics-lines {
-    padding: 32vh 2.5rem 55vh 2.5rem;
-  }
-
-  .lyrics-lines p {
-    font-size: calc(clamp(1.35rem, 2.5vw, 2.75rem) * var(--lyrics-scale, 1));
-    margin: 1.6rem 0;
-    line-height: 1.42;
-  }
-}
-
-/* Large desktop */
-@media (min-width: 1400px) {
-  .lyrics-shell {
-    gap: clamp(4rem, 8vw, 10rem);
-  }
-
-  .track-artwork {
-    width: min(28vw, 420px);
-  }
-
-  .track-column h1 {
-    font-size: clamp(2.25rem, 3vw, 3.75rem);
-  }
-
-  .lyrics-lines p {
-    font-size: calc(clamp(1.5rem, 2.2vw, 3rem) * var(--lyrics-scale, 1));
-  }
-}
-
-/* Landscape phones (S24 Ultra landscape, iPhone landscape) */
-@media (max-height: 500px) and (orientation: landscape) {
-  .lyrics-shell {
-    flex-direction: row;
-    align-items: center;
-    justify-content: center;
-    padding: 1rem 1.5rem;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
     gap: 1.5rem;
-    overflow-x: hidden;
+    padding: 2rem 1.5rem;
     overflow-y: hidden;
   }
-
   .track-column {
-    flex: 0 0 auto;
-    order: 2;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 1.5rem;
   }
-
   .track-artwork {
-    width: min(40vh, 180px);
-    height: min(40vh, 180px);
+    width: 80px;
+    height: 80px;
   }
-
-  .track-artist {
-    margin: 0.5rem 0 0.15rem;
-    font-size: 0.9rem;
-  }
-
   .track-column h1 {
-    font-size: clamp(1.1rem, 3vh, 1.6rem);
-    margin: 0 0 0.5rem;
+    font-size: 1.4rem;
+    margin: 0;
   }
-
-  .track-actions {
-    margin-top: 0.35rem;
+  .track-artist {
+    margin: 0;
   }
-
   .lyrics-column {
-    flex: 1 1 auto;
-    min-height: 0;
-    height: 90vh;
-    order: 1;
-    mask-image: linear-gradient(to right, transparent, black 15%, black 85%, transparent);
-    -webkit-mask-image: linear-gradient(to right, transparent, black 15%, black 85%, transparent);
-  }
-
-  .lyrics-lines {
-    height: 100%;
-    padding: 0 1.5rem 0 3rem;
-    transform-origin: left center;
-  }
-
-  .lyrics-lines p {
-    font-size: calc(clamp(1rem, 2.5vh, 1.35rem) * var(--lyrics-scale, 1));
-    margin: 1.2rem 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-}
-
-/* Very tall phones (foldables, S24 Ultra portrait) */
-@media (min-height: 850px) and (max-width: 480px) and (orientation: portrait) {
-  .lyrics-shell {
-    gap: 2rem;
-    padding: 2.5rem 1.5rem 3.5rem;
-  }
-
-  .track-artwork {
-    width: min(65vw, 300px);
-  }
-
-  .lyrics-column {
-    min-height: 55vh;
-  }
-
-  .lyrics-lines {
-    padding: 38vh 1.5rem 52vh 1.5rem;
-  }
-}
-
-/* Reduce motion for accessibility */
-@media (prefers-reduced-motion: reduce) {
-  .track-artwork,
-  .lyrics-lines,
-  .lyrics-lines p {
-    transition: none !important;
-    animation: none !important;
-  }
-}
-
-/* High contrast mode support */
-@media (prefers-contrast: high) {
-  .track-artwork {
-    border: 2px solid #fff;
-  }
-
-  .lyrics-lines p.lyrics-line--active {
-    text-shadow: none;
-    border-bottom: 2px solid #fff;
+    height: 60vh;
   }
 }
