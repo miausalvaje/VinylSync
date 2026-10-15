@@ -62,7 +62,10 @@ async def test_lrclib_falls_back_to_search_when_get_empty():
         }
     ]
 
-    responses = [DummyClient(get_payload), DummyClient(search_payload)]
+    responses = [DummyClient(get_payload), DummyClient(get_payload)] + [
+        DummyClient(search_payload),
+        DummyClient(search_payload),
+    ]
 
     with patch("vinyl_lyrics.lyrics.lrclib.httpx.AsyncClient", side_effect=responses):
         client = LRCLIBClient(base_url="https://example.test/api")
@@ -134,3 +137,84 @@ async def test_lrclib_falls_back_to_search_on_404():
     assert result is not None
     assert result.synced is True
     assert "Lyrics" in result.text
+
+
+@pytest.mark.asyncio
+async def test_lrclib_prefers_synced_over_plain_on_tie():
+    """A plain exact hit must not win over an equally scoring synced entry."""
+    plain_get = {
+        "trackName": "Telephone Line",
+        "artistName": "Electric Light Orchestra",
+        "plainLyrics": "plain lyric",
+        "duration": 282,
+    }
+    search_payload = [
+        {
+            "trackName": "Telephone Line",
+            "artistName": "Electric Light Orchestra",
+            "plainLyrics": "plain lyric",
+            "duration": 282,
+        },
+        {
+            "trackName": "Telephone Line",
+            "artistName": "Electric Light Orchestra",
+            "syncedLyrics": "[00:10.00]Synced",
+            "plainLyrics": "plain lyric",
+            "duration": 281,
+        },
+        {
+            "trackName": "Telephone Line",
+            "artistName": "Electric Light Orchestra",
+            "syncedLyrics": "[00:10.00]Synced",
+            "plainLyrics": "plain lyric",
+            "duration": 284.333333,
+        },
+    ]
+    responses = [
+        DummyClient(plain_get),
+        DummyClient(None),
+        DummyClient(search_payload),
+    ]
+
+    with patch("vinyl_lyrics.lyrics.lrclib.httpx.AsyncClient", side_effect=responses):
+        client = LRCLIBClient(base_url="https://example.test/api")
+        result = await client.get_lyrics(
+            "Electric Light Orchestra", "Telephone Line", duration=284.0
+        )
+
+    assert result is not None
+    assert result.synced is True
+    assert "Synced" in result.text
+
+
+@pytest.mark.asyncio
+async def test_lrclib_keeps_plain_get_hit_without_synced_same_song():
+    """An unrelated synced entry must not replace a correct plain hit."""
+    plain_get = {
+        "trackName": "My Song",
+        "artistName": "Artist",
+        "plainLyrics": "plain lyric",
+        "duration": 121,
+    }
+    unrelated_search = [
+        {
+            "trackName": "Other",
+            "artistName": "Someone",
+            "syncedLyrics": "[00:10.00]Unrelated",
+            "duration": 120,
+        }
+    ]
+    responses = [
+        DummyClient(plain_get),
+        DummyClient(None),
+        DummyClient(unrelated_search),
+        DummyClient(unrelated_search),
+    ]
+
+    with patch("vinyl_lyrics.lyrics.lrclib.httpx.AsyncClient", side_effect=responses):
+        client = LRCLIBClient(base_url="https://example.test/api")
+        result = await client.get_lyrics("Artist", "My Song", duration=120.0)
+
+    assert result is not None
+    assert result.synced is False
+    assert result.text == "plain lyric"

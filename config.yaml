@@ -21,15 +21,21 @@ recognition:
   # Minimum silence duration to consider that a pause occurred (does not discard the track on its own).
   track_gap_seconds: 1.5
   # Maximum silence duration during a track before assuming playback has stopped.
-  break_max_seconds: 10
+  break_max_seconds: 6
   # Margin before track end to treat a silence as a track boundary.
   end_margin_seconds: 10
   # Silence duration after which the player returns to the visualizer.
-  idle_timeout_seconds: 20
+  idle_timeout_seconds: 15
   # Minimum new audio sample length before a recognition attempt can restart after silence.
   min_sample_seconds: 5
   # Audio window length (in seconds) sent to the recognition provider.
   recognition_window_seconds: 12
+  # Maximum seconds to wait for a provider response before treating it as failed.
+  # A hung provider must never wedge detection: the attempt backs off and retries.
+  timeout_seconds: 30
+  # How long a half-confirmed track change (1 of 2 samples) is remembered.
+  # Flaky mid-play misses must not reset the confirmation counter.
+  candidate_ttl_seconds: 60
   shazam:
     enabled: true
   acrcloud:

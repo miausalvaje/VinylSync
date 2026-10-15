@@ -106,8 +106,13 @@ class ShazamRecognizer(BaseRecognizer):
         if not isinstance(match, dict):
             return None
         offset = coerce_float(match.get("offset"))
+        if offset is None:
+            # No position info: report unknown. A fabricated 0.0 here would
+            # rebase the playback clock to the song start on every background
+            # re-check, pinning synced lyrics near the first verse forever.
+            return None
         timeskew = coerce_float(match.get("timeskew"), 0.0) or 0.0
-        return offset + timeskew if offset is not None else timeskew
+        return offset + timeskew
 
     async def recognize_raw(self, wav_bytes: bytes) -> Any:
         """Return the provider response for diagnostics and normalization."""

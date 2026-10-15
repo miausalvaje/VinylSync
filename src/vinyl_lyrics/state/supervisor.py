@@ -56,6 +56,7 @@ class PlaybackSupervisor:
         track_gap_seconds: float = 1.5,
         break_max_seconds: float = 10.0,
         end_margin_seconds: float = 10.0,
+        candidate_ttl_seconds: float = 60.0,
         status: str = "idle",
     ) -> None:
         self.player = player
@@ -65,6 +66,7 @@ class PlaybackSupervisor:
         self.track_gap_seconds = float(track_gap_seconds)
         self.break_max_seconds = float(break_max_seconds)
         self.end_margin_seconds = float(end_margin_seconds)
+        self.candidate_ttl_seconds = float(candidate_ttl_seconds)
         self.status = status
         self.locked = False
         self.failed_attempts = 0
@@ -74,6 +76,7 @@ class PlaybackSupervisor:
         self.silence_started_monotonic: float | None = None
         self.silence_type: str | None = None
         self._pending_candidate: Track | None = None
+        self._pending_candidate_at: float | None = None
         self._pending_candidate_count: int = 0
 
     def handle_silence(
@@ -171,6 +174,26 @@ class PlaybackSupervisor:
 
         # 4. Sustained signal: schedule recognition
         already_scheduled = any(isinstance(a, StartRecognition) for a in actions)
+        if (
+            self.status == "identifying"
+            and self.player.current_track is None
+            and not recognition_busy
+            and not already_scheduled
+            and now >= self.next_recognition_at
+        ):
+            # Watchdog: a previous attempt died without reporting back
+            # (e.g. cancelled or timed out outside the normal handlers).
+            # Never stay wedged in "identifying".
+            self.status = "listening"
+            if silence.active:
+                actions.append(
+                    StartRecognition(
+                        since=self.signal_resumed_at,
+                        min_sample_seconds=self.min_sample_seconds,
+                        background=False,
+                    )
+                )
+                already_scheduled = True
         if silence.active and not already_scheduled:
             if self.player.current_track is None and self.status in {"idle", "listening"}:
                 if not recognition_busy and now >= self.next_recognition_at:
@@ -217,8 +240,10 @@ class PlaybackSupervisor:
         retry_delays = (8.0, 16.0, 30.0)
         delay = retry_delays[min(self.failed_attempts - 1, len(retry_delays) - 1)]
         self.next_recognition_at = now + delay
-        self._pending_candidate = None
-        self._pending_candidate_count = 0
+        # NOTE: the pending track-change candidate is intentionally kept here.
+        # Mid-play recognition is flaky (short windows, vinyl noise); a single
+        # miss must not wipe an already half-confirmed track change, otherwise
+        # the switch can never accumulate its 2 consecutive confirmations.
 
         if self.player.current_track is not None:
             return []
@@ -237,8 +262,8 @@ class PlaybackSupervisor:
         retry_delays = (8.0, 16.0, 30.0)
         delay = retry_delays[min(self.failed_attempts - 1, len(retry_delays) - 1)]
         self.next_recognition_at = now + delay
-        self._pending_candidate = None
-        self._pending_candidate_count = 0
+        # Same rationale as handle_recognition_no_track: a half-confirmed
+        # track-change candidate survives transient recognition errors.
 
         if self.player.current_track is not None:
             return []
@@ -262,6 +287,7 @@ class PlaybackSupervisor:
             self.status = "playing"
             self.next_recognition_at = now + self.player.reidentify_interval
             self._pending_candidate = None
+            self._pending_candidate_at = None
             self._pending_candidate_count = 0
             return [
                 ApplyTrack(track, locked=False),
@@ -275,6 +301,7 @@ class PlaybackSupervisor:
 
         if is_same:
             self._pending_candidate = None
+            self._pending_candidate_at = None
             self._pending_candidate_count = 0
             self.failed_attempts = 0
             self.next_recognition_at = now + self.player.reidentify_interval
@@ -287,11 +314,14 @@ class PlaybackSupervisor:
 
         if self.locked:
             self._pending_candidate = None
+            self._pending_candidate_at = None
             self._pending_candidate_count = 0
             return []
 
         is_same_candidate = (
             self._pending_candidate is not None
+            and self._pending_candidate_at is not None
+            and (now - self._pending_candidate_at) <= self.candidate_ttl_seconds
             and self._pending_candidate.artist.casefold() == track.artist.casefold()
             and self._pending_candidate.title.casefold() == track.title.casefold()
         )
@@ -299,10 +329,12 @@ class PlaybackSupervisor:
             self._pending_candidate_count += 1
         else:
             self._pending_candidate = track
+            self._pending_candidate_at = now
             self._pending_candidate_count = 1
 
         if self._pending_candidate_count >= 2:
             self._pending_candidate = None
+            self._pending_candidate_at = None
             self._pending_candidate_count = 0
             self.failed_attempts = 0
             self.status = "playing"

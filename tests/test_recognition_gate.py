@@ -41,6 +41,7 @@ async def test_failed_recognition_is_throttled() -> None:
     runtime.recognizer = FakeRecognizer()
     runtime.clients = set()
     runtime.recognition_window_seconds = 8.0
+    runtime.recognition_timeout_seconds = 30.0
     runtime.public_state = lambda: {"state": runtime.status}
     runtime.broadcast = lambda payload=None: _completed()
 

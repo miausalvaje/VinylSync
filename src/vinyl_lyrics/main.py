@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -49,6 +51,42 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
+
+_DEBUG_WAV_KEEP = 20
+
+
+def _maybe_dump_debug_wav(wav_bytes: bytes, sample_seconds: float) -> Path | None:
+    """Save a copy of the recognition window when debugging is enabled.
+
+    Set VINYLSYNC_DEBUG_WAV_DIR to a directory to keep the exact audio sent
+    to the recognition provider. Useful to check by ear (or with the phone
+    Shazam app) whether a "no match" is an audio problem or a database gap.
+    Only the newest _DEBUG_WAV_KEEP files are retained. Disabled by default.
+    """
+    directory = os.getenv("VINYLSYNC_DEBUG_WAV_DIR", "").strip()
+    if not directory:
+        return None
+    try:
+        target = Path(directory)
+        target.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        path = target / f"recog_{stamp}_{sample_seconds:.1f}s.wav"
+        counter = 0
+        while path.exists():
+            counter += 1
+            path = target / f"recog_{stamp}_{sample_seconds:.1f}s_{counter}.wav"
+        path.write_bytes(wav_bytes)
+        existing = sorted(target.glob("recog_*.wav"), key=lambda item: item.stat().st_mtime)
+        for old in existing[:-_DEBUG_WAV_KEEP]:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+        logger.debug("Saved recognition debug WAV: %s", path)
+        return path
+    except OSError as error:
+        logger.warning("Could not save recognition debug WAV: %s", error)
+        return None
 
 
 @dataclass(slots=True)
@@ -96,9 +134,10 @@ class ApplicationRuntime:
             float(recognition.get("min_signal_seconds", 1.0)),
             float(recognition.get("track_gap_seconds", 1.5)),
         )
-        self.idle_timeout_seconds = float(recognition.get("idle_timeout_seconds", 20.0))
+        self.idle_timeout_seconds = float(recognition.get("idle_timeout_seconds", 15.0))
         self.min_sample_seconds = float(recognition.get("min_sample_seconds", 5.0))
         self.recognition_window_seconds = float(recognition.get("recognition_window_seconds", 12.0))
+        self.recognition_timeout_seconds = float(recognition.get("timeout_seconds", 30.0))
         self.spectrum = SpectrumAnalyzer(self.capture.sample_rate)
         self.clients: set[Any] = set()
         self.spectrum_clients: set[Any] = set()
@@ -116,8 +155,9 @@ class ApplicationRuntime:
             idle_timeout_seconds=self.idle_timeout_seconds,
             min_sample_seconds=self.min_sample_seconds,
             track_gap_seconds=float(recognition.get("track_gap_seconds", 1.5)),
-            break_max_seconds=float(recognition.get("break_max_seconds", 10.0)),
+            break_max_seconds=float(recognition.get("break_max_seconds", 6.0)),
             end_margin_seconds=float(recognition.get("end_margin_seconds", 10.0)),
+            candidate_ttl_seconds=float(recognition.get("candidate_ttl_seconds", 60.0)),
             status=self._status,
         )
         self._task: asyncio.Task[None] | None = None
@@ -363,12 +403,15 @@ class ApplicationRuntime:
 
     async def _load_lyrics(self, track: Track) -> None:
         cached = self.cache.get(track.artist, track.title, track.duration)
-        if cached is not None:
+        if cached is not None and cached.synced:
             if getattr(self, "player", None) is not None and self.player.current_track is not None:
                 self.player.current_track.duration = (
                     cached.duration or self.player.current_track.duration
                 )
             return
+        # A cached *plain* result stays in the cache as silent fallback, but
+        # we still query the providers: a synced version may have appeared
+        # (or an earlier plain pick can now be upgraded).
         try:
             lyrics = await self.lyrics_client.get_lyrics(
                 track.artist, track.title, track.album, track.duration
@@ -431,7 +474,11 @@ class ApplicationRuntime:
                 actions = sup.handle_recognition_no_snapshot(background=background)
                 await self._execute_actions(actions)
                 return
-            track = await self.recognizer.recognize(snapshot.wav_bytes)
+            _maybe_dump_debug_wav(snapshot.wav_bytes, snapshot.sample_seconds)
+            track = await asyncio.wait_for(
+                self.recognizer.recognize(snapshot.wav_bytes),
+                timeout=self.recognition_timeout_seconds,
+            )
             if track is not None and track.offset_seconds is not None:
                 track.offset_seconds += time.monotonic() - snapshot.sample_start_monotonic
             if track is None:
@@ -450,7 +497,11 @@ class ApplicationRuntime:
         except asyncio.CancelledError:
             logger.info("Recognition task cancelled.")
             raise
-        except (OSError, RuntimeError, ValueError, httpx.HTTPError) as error:
+        except Exception as error:
+            # Broad catch on purpose: an unhandled provider error must never
+            # wedge the state machine in "identifying" (which would silently
+            # stop all future detection). Route everything through the normal
+            # backoff path instead. (CancelledError stays fatal for shutdown.)
             logger.exception("Recognition failed: %s", error)
             actions = sup.handle_recognition_error(error, background=background)
             await self._execute_actions(actions)
@@ -547,7 +598,10 @@ class ApplicationRuntime:
                     ),
                 )
                 await self._execute_actions(actions)
-            except (OSError, RuntimeError, ValueError, httpx.HTTPError) as error:
+            except Exception as error:
+                # Broad catch: an unexpected failure (e.g. corrupt lyrics cache
+                # row) must degrade to idle + backoff, never kill the control
+                # loop and silently stop all future detection.
                 self.status = "idle"
                 self._next_recognition_at = time.monotonic() + 8.0
                 logger.exception("Audio processing failed: %s", error)
@@ -578,7 +632,9 @@ class ApplicationRuntime:
                 samples = self.capture.latest_samples(2048 / self.capture.sample_rate)
                 self._last_metrics = self.spectrum.analyze(samples, self.settings.gain_db)
                 await self.broadcast_spectrum()
-            except (OSError, RuntimeError, ValueError) as error:
+            except Exception as error:
+                # Broad catch for the same reason as the control loop: a bad
+                # audio chunk must not kill spectrum streaming permanently.
                 logger.exception("Spectrum processing failed: %s", error)
             await asyncio.sleep(0.025)
 

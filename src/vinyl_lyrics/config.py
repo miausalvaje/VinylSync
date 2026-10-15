@@ -82,6 +82,8 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         "min_sample_seconds",
         "break_max_seconds",
         "end_margin_seconds",
+        "timeout_seconds",
+        "candidate_ttl_seconds",
     )
     for key in positive_recognition_keys:
         if key in recognition and float(recognition[key]) <= 0:

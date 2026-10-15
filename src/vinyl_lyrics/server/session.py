@@ -34,23 +34,41 @@ class SessionManager:
 
         return ApplicationRuntime(self.config)
 
+    @staticmethod
+    def _ensure_runtime_started(runtime: ApplicationRuntime) -> None:
+        """Start a runtime's control/spectrum loops if they are not running.
+
+        `get_runtime` is synchronous and can win a race against the WS connect
+        (e.g. the frontend's settings fetch on page load): without this, a
+        runtime created via REST would never capture audio or recognize songs,
+        and a later WS connect would keep reusing that dead runtime.
+        """
+        try:
+            runtime.ensure_control_loop()
+        except RuntimeError:
+            # No running event loop (e.g. called from a synchronous context).
+            pass
+
     def get_runtime(self, session_key: str | None = None) -> ApplicationRuntime:
         """Get or synchronously retrieve a runtime session."""
         key = (session_key or "").strip() or "default"
-        if key in self.sessions:
-            return self.sessions[key]
-
-        # Create on demand
-        runtime = self._create_runtime()
-        self.sessions[key] = runtime
+        runtime = self.sessions.get(key)
+        if runtime is None:
+            # Create on demand
+            runtime = self._create_runtime()
+            self.sessions[key] = runtime
+        self._ensure_runtime_started(runtime)
         return runtime
 
     async def get_or_create_runtime(self, session_key: str | None = None) -> ApplicationRuntime:
         """Get or asynchronously create an isolated ApplicationRuntime session."""
         key = (session_key or "").strip() or "default"
         async with self._lock:
-            if key in self.sessions:
-                return self.sessions[key]
+            runtime = self.sessions.get(key)
+            if runtime is not None:
+                # May have been created via the sync REST path without loops.
+                self._ensure_runtime_started(runtime)
+                return runtime
             runtime = self._create_runtime()
             self.sessions[key] = runtime
             await runtime.start()

@@ -119,7 +119,76 @@ class LRCLIBClient:
         if LRCLIBClient._candidate_text(candidate):
             score += 1.5
 
+        if candidate.get("syncedLyrics"):
+            # Prefer time-synced lyrics: all else equal (e.g. identical
+            # title/artist/duration scores), a synced entry must win over a
+            # plain one. The bonus is deliberately smaller than a title or
+            # artist match so it only breaks near-ties, never mismatches.
+            score += 2.0
+
         return score
+
+    @staticmethod
+    def _is_same_song(candidate: dict[str, Any], title: str, artist: str) -> bool:
+        """Check title/artist match (exact or substring) for synced upgrades."""
+        candidate_title = LRCLIBClient._normalize(
+            candidate.get("trackName")
+            or candidate.get("track_name")
+            or candidate.get("name")
+            or candidate.get("title")
+        )
+        candidate_artist = LRCLIBClient._normalize(
+            candidate.get("artistName") or candidate.get("artist_name") or candidate.get("artist")
+        )
+        if not candidate_title or not title:
+            return False
+        title_ok = (
+            candidate_title.casefold() == title.casefold()
+            or title.casefold() in candidate_title.casefold()
+            or candidate_title.casefold() in title.casefold()
+        )
+        if not candidate_artist or not artist:
+            return False
+        artist_ok = (
+            candidate_artist.casefold() == artist.casefold()
+            or artist.casefold() in candidate_artist.casefold()
+            or candidate_artist.casefold() in artist.casefold()
+        )
+        return title_ok and artist_ok
+
+    def _prefer_synced_get_hit(
+        self,
+        payload: Any,
+        artist_name: str,
+        track_name: str,
+        album_name: str | None,
+        duration: float | None,
+        plain_fallback: LyricResult | None,
+    ) -> tuple[LyricResult | None, LyricResult | None]:
+        """Process a /api/get response: a synced hit wins, else stash plain fallback."""
+        if isinstance(payload, dict):
+            result = self._normalize_lyrics_result(
+                payload, artist_name, track_name, album_name, duration
+            )
+            if result is not None:
+                if result.synced:
+                    return result, plain_fallback
+                if plain_fallback is None:
+                    plain_fallback = result
+        elif isinstance(payload, list):
+            for candidate in payload:
+                if not isinstance(candidate, dict):
+                    continue
+                result = self._normalize_lyrics_result(
+                    candidate, artist_name, track_name, album_name, duration
+                )
+                if result is not None:
+                    if result.synced:
+                        return result, plain_fallback
+                    if plain_fallback is None:
+                        plain_fallback = result
+                    break
+        return None, plain_fallback
 
     async def _request_json(self, path: str, params: dict[str, Any]) -> Any:
         url = f"{self.base_url}{path}"
@@ -161,21 +230,15 @@ class LRCLIBClient:
         except httpx.HTTPError:
             match = None
 
-        if isinstance(match, dict):
-            result = self._normalize_lyrics_result(
-                match, artist_name, track_name, album_name, duration
-            )
-            if result is not None:
-                return result
-        elif isinstance(match, list):
-            for candidate in match:
-                if not isinstance(candidate, dict):
-                    continue
-                result = self._normalize_lyrics_result(
-                    candidate, artist_name, track_name, album_name, duration
-                )
-                if result is not None:
-                    return result
+        # A plain exact hit is only a fallback: keep searching for a synced
+        # version before settling for it.
+        plain_fallback: LyricResult | None = None
+        plain_search_fallback: LyricResult | None = None
+        synced_hit, plain_fallback = self._prefer_synced_get_hit(
+            match, artist_name, track_name, album_name, duration, plain_fallback
+        )
+        if synced_hit is not None:
+            return synced_hit
 
         # Try GET without duration if duration was provided (duration mismatch)
         if duration is not None:
@@ -184,21 +247,11 @@ class LRCLIBClient:
                 match_no_dur = await self._request_json("/api/get", params_no_duration)
             except httpx.HTTPError:
                 match_no_dur = None
-            if isinstance(match_no_dur, dict):
-                result = self._normalize_lyrics_result(
-                    match_no_dur, artist_name, track_name, album_name, duration
-                )
-                if result is not None:
-                    return result
-            elif isinstance(match_no_dur, list):
-                for candidate in match_no_dur:
-                    if not isinstance(candidate, dict):
-                        continue
-                    result = self._normalize_lyrics_result(
-                        candidate, artist_name, track_name, album_name, duration
-                    )
-                    if result is not None:
-                        return result
+            synced_hit, plain_fallback = self._prefer_synced_get_hit(
+                match_no_dur, artist_name, track_name, album_name, duration, plain_fallback
+            )
+            if synced_hit is not None:
+                return synced_hit
 
         clean_track = re.sub(r"\s*[\(\[].*?[\)\]]", "", track_name).strip()
         if clean_track and clean_track.casefold() != track_name.casefold():
@@ -208,12 +261,11 @@ class LRCLIBClient:
                 clean_match = await self._request_json("/api/get", clean_params)
             except httpx.HTTPError:
                 clean_match = None
-            if isinstance(clean_match, dict):
-                result = self._normalize_lyrics_result(
-                    clean_match, artist_name, track_name, album_name, duration
-                )
-                if result is not None:
-                    return result
+            synced_hit, plain_fallback = self._prefer_synced_get_hit(
+                clean_match, artist_name, track_name, album_name, duration, plain_fallback
+            )
+            if synced_hit is not None:
+                return synced_hit
 
         search_params: list[dict[str, Any]] = [
             {"track_name": track_name, "artist_name": artist_name},
@@ -253,19 +305,21 @@ class LRCLIBClient:
             def score_fn(item: dict[str, Any]) -> float:
                 return self._match_score(item, track_name, artist_name, duration, album_name)
 
-            best_candidate = max(
-                candidates,
+            ranked = sorted(
+                (item for item in candidates if isinstance(item, dict)),
                 key=score_fn,
-                default=None,
+                reverse=True,
             )
-            if best_candidate is None:
-                continue
-
-            normalized = self._normalize_lyrics_result(
-                best_candidate, artist_name, track_name, album_name, duration
-            )
-            if normalized is not None:
-                return normalized
+            for candidate in ranked:
+                normalized = self._normalize_lyrics_result(
+                    candidate, artist_name, track_name, album_name, duration
+                )
+                if normalized is None:
+                    continue
+                if normalized.synced and self._is_same_song(candidate, track_name, artist_name):
+                    return normalized
+                if not normalized.synced and plain_search_fallback is None:
+                    plain_search_fallback = normalized
 
         # Final fallback: search without album if album was provided
         if album_name:
@@ -288,21 +342,23 @@ class LRCLIBClient:
                 def score_fn(item: dict[str, Any]) -> float:
                     return self._match_score(item, track_name, artist_name, duration, None)
 
-                best_candidate = max(
-                    candidates,
+                ranked = sorted(
+                    (item for item in candidates if isinstance(item, dict)),
                     key=score_fn,
-                    default=None,
+                    reverse=True,
                 )
-                if best_candidate is None:
-                    continue
+                for candidate in ranked:
+                    normalized = self._normalize_lyrics_result(
+                        candidate, artist_name, track_name, album_name, duration
+                    )
+                    if normalized is None:
+                        continue
+                    if normalized.synced and self._is_same_song(candidate, track_name, artist_name):
+                        return normalized
+                    if not normalized.synced and plain_search_fallback is None:
+                        plain_search_fallback = normalized
 
-                normalized = self._normalize_lyrics_result(
-                    best_candidate, artist_name, track_name, album_name, duration
-                )
-                if normalized is not None:
-                    return normalized
-
-        return None
+        return plain_fallback or plain_search_fallback
 
     async def search(self, query: str) -> list[dict[str, Any]]:
         """Search LRCLIB candidates for manual track correction."""
