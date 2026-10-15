@@ -140,6 +140,39 @@ export function setupLyricsSync(store) {
     }, 3500);
   }, { passive: true });
 
+  let touchY = null;
+  function endTouchPause() {
+    isManualScrolling = false;
+    container.style.transition = "";
+    if (isSynced && activeIndex >= 0) {
+      scrollToActive();
+    }
+  }
+  column?.addEventListener("touchstart", (event) => {
+    if (event.touches.length === 1) {
+      touchY = event.touches[0].clientY;
+    }
+  }, { passive: true });
+  column?.addEventListener("touchmove", (event) => {
+    if (touchY === null || event.touches.length !== 1) return;
+    const y = event.touches[0].clientY;
+    const delta = touchY - y;
+    touchY = y;
+    isManualScrolling = true;
+    container.style.transition = "transform 0.08s ease-out";
+    const maxOffset = Math.max(0, container.scrollHeight - (column.clientHeight || 1));
+    currentScrollOffset = Math.min(maxOffset, Math.max(0, currentScrollOffset + delta));
+    container.style.setProperty("--lyrics-offset", `${currentScrollOffset}px`);
+    clearTimeout(manualScrollTimeout);
+    manualScrollTimeout = setTimeout(endTouchPause, 3500);
+  }, { passive: true });
+  column?.addEventListener("touchend", () => {
+    touchY = null;
+  }, { passive: true });
+  column?.addEventListener("touchcancel", () => {
+    touchY = null;
+  }, { passive: true });
+
   container?.addEventListener("click", (event) => {
     const p = event.target.closest("p[data-index]");
     if (!p) return;
