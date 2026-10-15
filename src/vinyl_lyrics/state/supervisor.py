@@ -72,6 +72,7 @@ class PlaybackSupervisor:
         self.failed_attempts = 0
         self.next_recognition_at = 0.0
         self.signal_resumed_at: float | None = None
+        self.signal_active_since: float | None = None
         self.track_gap_pending = False
         self.silence_started_monotonic: float | None = None
         self.silence_type: str | None = None
@@ -87,6 +88,16 @@ class PlaybackSupervisor:
         """Handle silence detector updates and schedule playback transitions."""
         actions: list[SupervisorAction] = []
         now = self.clock()
+
+        # Track how long signal has been continuously present, independent of
+        # transitions. signal_resumed_at is only set on became_active edges
+        # and cleared on every identification, so a gapless track change (no
+        # fresh edge) would otherwise wedge the scheduler below forever.
+        if silence.active:
+            if self.signal_active_since is None:
+                self.signal_active_since = now
+        else:
+            self.signal_active_since = None
 
         # 1. On silence transition: became_silent
         if silence.became_silent:
@@ -197,15 +208,17 @@ class PlaybackSupervisor:
         if silence.active and not already_scheduled:
             if self.player.current_track is None and self.status in {"idle", "listening"}:
                 if not recognition_busy and now >= self.next_recognition_at:
-                    if self.signal_resumed_at is not None:
-                        if now - self.signal_resumed_at >= self.min_sample_seconds:
-                            actions.append(
-                                StartRecognition(
-                                    since=self.signal_resumed_at,
-                                    min_sample_seconds=self.min_sample_seconds,
-                                    background=False,
-                                )
+                    if (
+                        self.signal_active_since is not None
+                        and now - self.signal_active_since >= self.min_sample_seconds
+                    ):
+                        actions.append(
+                            StartRecognition(
+                                since=self.signal_resumed_at,
+                                min_sample_seconds=self.min_sample_seconds,
+                                background=False,
                             )
+                        )
             elif (
                 self.player.current_track is not None
                 and self.status == "playing"

@@ -31,9 +31,12 @@ WEB_ROOT = Path(__file__).resolve().parents[3] / "web"
 @router.get("/api/health")
 async def health(request: Request) -> dict[str, Any]:
     """Return a basic service health response."""
+    from vinyl_lyrics import __version__
+
     return {
         "status": "ok",
         "auth_required": is_auth_required(),
+        "version": __version__,
     }
 
 

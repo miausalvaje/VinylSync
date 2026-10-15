@@ -25,10 +25,16 @@ ENV/
 
 # Application data
 data/
+settings.json
 *.sqlite
 *.sqlite3
 *.log
 logs/
+
+# Recognition debug audio dumps (VINYLSYNC_DEBUG_WAV_DIR)
+recog_*.wav
+*.wav
+debug_wavs/
 
 # Editors and IDEs
 .vs/

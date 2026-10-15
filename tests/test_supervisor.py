@@ -361,6 +361,57 @@ def test_three_consecutive_failures_without_song_transitions_to_idle() -> None:
     assert actions[0].event == "idle"
 
 
+def test_gapless_signal_without_edge_still_triggers_recognition() -> None:
+    """Continuous audio with no became_active edge must still identify.
+
+    Regression: signal_resumed_at is only set on became_active transitions
+    and cleared on every success, so a gapless track change (detector never
+    cycles) left resumed=None and the scheduler never fired.
+    """
+    clock = FakeClock(1000.0)
+    player = PlayerState()
+    supervisor = PlaybackSupervisor(
+        player=player,
+        clock=clock,
+        min_sample_seconds=5.0,
+        status="listening",
+    )
+    assert supervisor.signal_resumed_at is None
+
+    steady = SilenceState(active=True, became_active=False, became_silent=False, silent_for=0.0)
+    actions = supervisor.handle_silence(steady, recognition_busy=False)
+    assert actions == []
+
+    clock.advance(5.1)
+    actions = supervisor.handle_silence(steady, recognition_busy=False)
+    assert len(actions) == 1
+    assert isinstance(actions[0], StartRecognition)
+    assert actions[0].background is False
+
+
+def test_signal_pause_resets_sustained_tracking() -> None:
+    """A silence gap restarts the sustained-signal measurement."""
+    clock = FakeClock(1000.0)
+    player = PlayerState()
+    supervisor = PlaybackSupervisor(
+        player=player,
+        clock=clock,
+        min_sample_seconds=5.0,
+        status="listening",
+    )
+    steady = SilenceState(active=True, became_active=False, became_silent=False, silent_for=0.0)
+    clock.advance(3.0)
+    supervisor.handle_silence(steady, recognition_busy=False)
+
+    quiet = SilenceState(active=False, became_active=False, became_silent=False, silent_for=3.0)
+    supervisor.handle_silence(quiet, recognition_busy=False)
+    assert supervisor.signal_active_since is None
+
+    clock.advance(3.0)
+    actions = supervisor.handle_silence(steady, recognition_busy=False)
+    assert actions == []
+
+
 def test_no_overlapping_recognition_and_break_cancels_periodic() -> None:
     """11. No overlapping: busy check prevents start; break verification cancels periodic."""
     clock = FakeClock(1000.0)

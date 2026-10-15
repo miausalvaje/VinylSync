@@ -584,6 +584,7 @@ class ApplicationRuntime:
                 await asyncio.sleep(0.5)
                 continue
 
+            recognition_busy = False
             try:
                 samples = self.capture.latest_samples(0.25)
                 level = self.spectrum.analyze_level(samples, self.settings.gain_db)
@@ -591,11 +592,12 @@ class ApplicationRuntime:
                 now = time.monotonic()
                 if self._recognition_task is not None and self._recognition_task.done():
                     self._recognition_task = None
+                recognition_busy = (
+                    self._recognition_task is not None and not self._recognition_task.done()
+                )
                 actions = self._ensure_supervisor().handle_silence(
                     silence,
-                    recognition_busy=(
-                        self._recognition_task is not None and not self._recognition_task.done()
-                    ),
+                    recognition_busy=recognition_busy,
                 )
                 await self._execute_actions(actions)
             except Exception as error:
@@ -611,13 +613,20 @@ class ApplicationRuntime:
             now = time.monotonic()
             if now - self._last_diagnostics_at >= 5.0:
                 self._last_diagnostics_at = now
+                supervisor = self._ensure_supervisor()
                 logger.info(
-                    "Audio diagnostics: samples=%d, level=%.1f dBFS, rms=%.4f, signal=%s, state=%s",
+                    "Audio diagnostics: samples=%d, level=%.1f dBFS, rms=%.4f, "
+                    "signal=%s, state=%s, resumed=%s, recog_busy=%s, "
+                    "next_in=%.1fs, failed=%d",
                     self.capture._received_samples,
                     self._last_metrics.dbfs,
                     self._last_metrics.rms,
                     silence.active,
                     self.status,
+                    supervisor.signal_resumed_at is not None,
+                    recognition_busy,
+                    max(0.0, supervisor.next_recognition_at - now),
+                    supervisor.failed_attempts,
                 )
             await asyncio.sleep(0.1)
 
