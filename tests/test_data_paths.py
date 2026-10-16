@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from vinyl_lyrics.paths import resolve_data_path
 
 
