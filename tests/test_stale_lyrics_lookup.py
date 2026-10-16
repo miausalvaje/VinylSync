@@ -1,7 +1,7 @@
 import asyncio
 
-from vinyl_lyrics.main import ApplicationRuntime
 from vinyl_lyrics.lyrics.lrclib import LyricResult
+from vinyl_lyrics.main import ApplicationRuntime
 from vinyl_lyrics.recognition.base import Track
 from vinyl_lyrics.state.player import PlayerState
 
