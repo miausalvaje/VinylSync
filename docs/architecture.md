@@ -56,7 +56,7 @@ flowchart LR
 ## Browser audio streaming & Single-sender semantics
 
 - Endpoint: `/ws/audio`. Handshake expects JSON `{"type": "hello", "client_id": "...", "sample_rate": int, "channels": 1, "format": "s16le"}`.
-- Concurrency: Only one audio sender is active at a time. Other clients receive `{"type": "busy", "capturer_id": "..."}` and can request a handover with `{"type": "takeover"}`.
+- Concurrency: Only one audio sender is active per `ApplicationRuntime`. Since authenticated users currently have separate runtimes, the sender/takeover restriction is per user session rather than process-global. Each runtime also owns its own capture source; physical device sharing across runtimes depends on the host audio backend and is not coordinated globally.
 - Rate limiting: Protected by a token bucket rate limiter (~2x nominal bandwidth with burst tolerance) and a maximum binary frame limit of 64 KB.
 - Switching sources: Selecting a server hardware device while a browser is streaming notifies and disconnects the browser with reason `server_device_selected`.
 
