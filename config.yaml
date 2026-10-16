@@ -8,8 +8,9 @@ audio:
   buffer_seconds: 15
   # Gain applied before spectrum analysis and silence detection.
   gain_db: 0
-  # Default system noise threshold for recording devices.
-  silence_threshold_db: -40
+  # Hysteresis thresholds for detecting active audio, in dBFS.
+  silence_enter_dbfs: -48
+  silence_exit_dbfs: -54
 
 recognition:
   # Available values: shazam, acrcloud, audd.

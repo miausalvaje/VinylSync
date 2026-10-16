@@ -1,5 +1,6 @@
 import json
 import time
+from concurrent.futures import CancelledError
 
 import numpy as np
 import pytest
@@ -293,10 +294,11 @@ def test_ws_audio_authentication(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     client = TestClient(app)
 
-    # 1. Connect without token -> fails on first message check
-    with client.websocket_connect("/ws/audio") as ws:
-        ws.send_text(json.dumps({"type": "hello"}))
-        with pytest.raises((WebSocketDisconnect, RuntimeError)):
+    # 1. Missing token must not permit an unauthenticated WebSocket. On Windows,
+    # Starlette can surface cancellation while cleaning up the rejected socket.
+    with pytest.raises((WebSocketDisconnect, RuntimeError, CancelledError)):
+        with client.websocket_connect("/ws/audio") as ws:
+            ws.send_text(json.dumps({"type": "hello"}))
             ws.receive_text()
 
     # 2. Connect with subprotocol -> succeeds
