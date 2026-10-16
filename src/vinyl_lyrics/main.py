@@ -343,7 +343,10 @@ class ApplicationRuntime:
                 else None
             ),
             "lyrics": lyrics,
-            "elapsed_seconds": track.elapsed_seconds() if track else 0.0,
+            # Keep the existing frontend field aligned to lyrics; playback logic uses
+            # PlayerState.elapsed_seconds(), which excludes the manual lyric offset.
+            "elapsed_seconds": track.lyric_elapsed_seconds() if track else 0.0,
+            "playback_elapsed_seconds": track.elapsed_seconds() if track else 0.0,
             "source": {
                 "source_id": self.capture.source_info.source_id,
                 "name": self.capture.source_info.name,
