@@ -22,13 +22,9 @@ def _config(**overrides: str) -> dict[str, str]:
 
 def test_signature_matches_acrcloud_v1_spec() -> None:
     timestamp = "1700000000"
-    expected_string = "\n".join(
-        ("POST", _IDENTIFY_PATH, "key", "audio", "1", timestamp)
-    )
+    expected_string = "\n".join(("POST", _IDENTIFY_PATH, "key", "audio", "1", timestamp))
     expected = base64.b64encode(
-        hmac.new(
-            b"secret", expected_string.encode(), hashlib.sha1
-        ).digest()
+        hmac.new(b"secret", expected_string.encode(), hashlib.sha1).digest()
     ).decode()
 
     assert ACRCloudRecognizer._build_signature("key", "secret", timestamp) == expected
@@ -57,8 +53,13 @@ def test_acrcloud_host_must_use_https() -> None:
 
 def test_factory_creates_acrcloud_provider_from_config() -> None:
     recognizer = create_recognizer(
-        config={"recognition": {"provider": "acrcloud", "timeout_seconds": 12,
-                                "acrcloud": _config()}}
+        config={
+            "recognition": {
+                "provider": "acrcloud",
+                "timeout_seconds": 12,
+                "acrcloud": _config(),
+            }
+        }
     )
 
     assert isinstance(recognizer, ACRCloudRecognizer)
@@ -75,7 +76,11 @@ def test_build_track_normalizes_acrcloud_metadata() -> None:
             "duration_ms": 215000,
             "play_offset_ms": 43000,
             "external_metadata": {
-                "spotify": {"album": {"images": [{"url": "https://example.com/cover.jpg"}]}}
+                "spotify": {
+                    "album": {
+                        "images": [{"url": "https://example.com/cover.jpg"}],
+                    },
+                },
             },
         }
     )
