@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from vinyl_lyrics.recognition import FallbackRecognizer, Track
 
 
 class FakeRecognizer:
-    def __init__(self, name: str, result: Track | None = None, error: Exception | None = None):
+    def __init__(
+        self, name: str, result: Track | None = None, error: Exception | None = None
+    ):
         self.name = name
         self.result = result
         self.error = error
@@ -70,4 +70,4 @@ async def test_all_provider_errors_raise_last_error() -> None:
 
 def test_fallback_chain_requires_at_least_one_provider() -> None:
     with pytest.raises(ValueError, match="At least one"):
-        FallbackRecognizer([])  # type: ignore[arg-type]
+        FallbackRecognizer(())
