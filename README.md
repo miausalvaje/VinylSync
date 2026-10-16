@@ -134,9 +134,9 @@ Set `recognition.provider: shazam` and keep the default configuration.
 
 ### ACRCloud
 
-Set `recognition.provider: acrcloud` and provide `ACR_HOST`, `ACR_ACCESS_KEY`, and `ACR_ACCESS_SECRET` in `.env`.
+Set `recognition.provider: acrcloud` and provide `ACR_HOST`, `ACR_ACCESS_KEY`, and `ACR_ACCESS_SECRET` in `.env`. The host can be the hostname shown in your ACRCloud console (for example, `identify-eu-west-1.acrcloud.com`) or its HTTPS URL. VinylSync signs each request using the ACRCloud Identify API v1 HMAC-SHA1 scheme and uploads the WAV sample over HTTPS.
 
-> Experimental: the ACRCloud adapter is present but still intentionally kept as a secondary implementation.
+The configured `recognition.timeout_seconds` value is used as the HTTP timeout. If credentials are missing or the host is invalid, startup fails with an actionable configuration error. ACRCloud's no-match response is treated as a normal unsuccessful recognition attempt; other API errors are reported.
 
 ### AudD
 
