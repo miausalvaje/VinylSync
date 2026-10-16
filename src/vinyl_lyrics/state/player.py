@@ -26,7 +26,11 @@ class TrackState:
     def elapsed_seconds(self, now: float | None = None) -> float:
         """Return elapsed playback time since the song started."""
         timestamp = time.monotonic() if now is None else now
-        return max(0.0, timestamp - self.started_at_monotonic + self.manual_offset_seconds)
+        return max(0.0, timestamp - self.started_at_monotonic)
+
+    def lyric_elapsed_seconds(self, now: float | None = None) -> float:
+        """Return elapsed time for lyric synchronization, including the user offset."""
+        return max(0.0, self.elapsed_seconds(now) + self.manual_offset_seconds)
 
     def sync_offset(self, reference_now: float | None = None) -> None:
         """Adjust the start timestamp so that the current offset is preserved."""
@@ -90,6 +94,12 @@ class PlayerState:
         if self.current_track is None:
             return 0.0
         return self.current_track.elapsed_seconds(now)
+
+    def lyric_elapsed_seconds(self, now: float | None = None) -> float:
+        """Return the lyric timeline position for the current track."""
+        if self.current_track is None:
+            return 0.0
+        return self.current_track.lyric_elapsed_seconds(now)
 
     def remaining_seconds(self, now: float | None = None) -> float | None:
         """Return the remaining playback time for the current track."""
