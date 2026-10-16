@@ -418,10 +418,22 @@ class ApplicationRuntime:
         )
         self.locked = locked
 
+    def _is_current_track(self, track: Track) -> bool:
+        current = getattr(getattr(self, "player", None), "current_track", None)
+        current_artist = getattr(current, "artist", None)
+        current_title = getattr(current, "title", None)
+        return (
+            current is not None
+            and isinstance(current_artist, str)
+            and isinstance(current_title, str)
+            and current_artist.casefold() == track.artist.casefold()
+            and current_title.casefold() == track.title.casefold()
+        )
+
     async def _load_lyrics(self, track: Track) -> None:
         cached = self.cache.get(track.artist, track.title, track.duration)
         if cached is not None and cached.synced:
-            if getattr(self, "player", None) is not None and self.player.current_track is not None:
+            if self._is_current_track(track) and self.player.current_track is not None:
                 self.player.current_track.duration = (
                     cached.duration or self.player.current_track.duration
                 )
@@ -442,7 +454,7 @@ class ApplicationRuntime:
         if lyrics is not None:
             if lyrics.cover_url is None:
                 lyrics.cover_url = track.cover_url
-            if getattr(self, "player", None) is not None and self.player.current_track is not None:
+            if self._is_current_track(track) and self.player.current_track is not None:
                 self.player.current_track.duration = (
                     lyrics.duration or self.player.current_track.duration
                 )
