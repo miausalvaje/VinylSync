@@ -69,13 +69,9 @@ class ACRCloudRecognizer(BaseRecognizer):
         self.base_url = f"https://{parsed.netloc}"
 
     @staticmethod
-    def _build_signature(
-        access_key: str, access_secret: str, timestamp: str
-    ) -> str:
+    def _build_signature(access_key: str, access_secret: str, timestamp: str) -> str:
         """Build the ACRCloud Identify API v1 HMAC-SHA1 signature."""
-        string_to_sign = "\n".join(
-            ("POST", _IDENTIFY_PATH, access_key, "audio", "1", timestamp)
-        )
+        string_to_sign = "\n".join(("POST", _IDENTIFY_PATH, access_key, "audio", "1", timestamp))
         digest = hmac.new(
             access_secret.encode("utf-8"),
             string_to_sign.encode("utf-8"),
@@ -159,14 +155,10 @@ class ACRCloudRecognizer(BaseRecognizer):
         if not wav_bytes:
             return None
         if len(wav_bytes) > _MAX_SAMPLE_BYTES:
-            raise ValueError(
-                "ACRCloud audio sample exceeds the 5 MiB Identify API size limit."
-            )
+            raise ValueError("ACRCloud audio sample exceeds the 5 MiB Identify API size limit.")
 
         timestamp = str(int(time.time()))
-        signature = self._build_signature(
-            self.access_key, self.access_secret, timestamp
-        )
+        signature = self._build_signature(self.access_key, self.access_secret, timestamp)
         form = {
             "access_key": self.access_key,
             "sample_bytes": str(len(wav_bytes)),
