@@ -508,9 +508,13 @@ class ApplicationRuntime:
                 await self._execute_actions(actions)
                 return
             _maybe_dump_debug_wav(snapshot.wav_bytes, snapshot.sample_seconds)
+            # The configured timeout applies to each provider in a fallback chain,
+            # not to the entire chain; otherwise a slow primary provider could prevent
+            # the fallback from ever getting a chance to identify the same sample.
+            provider_count = len(getattr(self.recognizer, "providers", (self.recognizer,)))
             track = await asyncio.wait_for(
                 self.recognizer.recognize(snapshot.wav_bytes),
-                timeout=self.recognition_timeout_seconds,
+                timeout=self.recognition_timeout_seconds * provider_count,
             )
             if track is not None and track.offset_seconds is not None:
                 track.offset_seconds += time.monotonic() - snapshot.sample_start_monotonic

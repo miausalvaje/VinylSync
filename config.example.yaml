@@ -15,6 +15,9 @@ audio:
 recognition:
   # Available values: shazam, acrcloud, audd.
   provider: shazam
+  # Optional providers to try, in order, if the primary provider returns no match or errors.
+  # Example: [acrcloud] tries Shazam first, then ACRCloud.
+  fallback_providers: []
   # Re-identify the active song after this many seconds.
   interval_seconds: 45
   # Minimum sustained signal before a recognition attempt is triggered.
