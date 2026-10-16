@@ -73,7 +73,7 @@ from other local users. Absolute paths configured explicitly remain absolute.
 | `audio.buffer_seconds` | `15` | Circular audio history kept in memory. |
 | `audio.gain_db` | `0` | Gain applied before analysis. |
 | `audio.sample_rate` | `44100` | Capture sample rate in Hz. |
-| `recognition.provider` | `shazam` | Provider name: `shazam`, `acrcloud`, or `audd`. |
+| `recognition.provider` | `shazam` | Primary recognition provider: `shazam`, `acrcloud`, or `audd`. |\n| `recognition.fallback_providers` | `[]` | Optional ordered list of providers to try if the primary returns no match or errors, e.g. `[acrcloud]`. |
 | `recognition.interval_seconds` | `45` | Re-identification interval. |
 | `recognition.min_signal_seconds` | `1.0` | Minimum sustained signal before a recognition attempt. |
 | `recognition.track_gap_seconds` | `1.5` | Minimum silence duration to treat a pause as a gap (does not discard the track on its own). |
@@ -134,9 +134,9 @@ Set `recognition.provider: shazam` and keep the default configuration.
 
 ### ACRCloud
 
-Set `recognition.provider: acrcloud` and provide `ACR_HOST`, `ACR_ACCESS_KEY`, and `ACR_ACCESS_SECRET` in `.env`. The host can be the hostname shown in your ACRCloud console (for example, `identify-eu-west-1.acrcloud.com`) or its HTTPS URL. VinylSync signs each request using the ACRCloud Identify API v1 HMAC-SHA1 scheme and uploads the WAV sample over HTTPS.
+To use ACRCloud as the primary provider, set `recognition.provider: acrcloud`. To try Shazam first and ACRCloud only when it returns no match or fails, keep `recognition.provider: shazam` and set `recognition.fallback_providers: [acrcloud]`. In either case, provide `ACR_HOST`, `ACR_ACCESS_KEY`, and `ACR_ACCESS_SECRET` in `.env`. The host can be the hostname shown in your ACRCloud console (for example, `identify-eu-west-1.acrcloud.com`) or its HTTPS URL. VinylSync signs each request using the ACRCloud Identify API v1 HMAC-SHA1 scheme and uploads the WAV sample over HTTPS.
 
-The configured `recognition.timeout_seconds` value is used as the HTTP timeout. If credentials are missing or the host is invalid, startup fails with an actionable configuration error. ACRCloud's no-match response is treated as a normal unsuccessful recognition attempt; other API errors are reported.
+The configured `recognition.timeout_seconds` value is used as the HTTP timeout. If credentials are missing or the host is invalid, startup fails with an actionable configuration error. ACRCloud's no-match response is treated as a normal unsuccessful recognition attempt; other API errors are reported. Fallbacks run in the order listed and are skipped when an earlier provider already identifies a track.
 
 ### AudD
 
