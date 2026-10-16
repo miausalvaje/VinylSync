@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+import vinyl_lyrics.audio.capture as capture_module
 from vinyl_lyrics.audio.capture import ContinuousAudioCapture
 from vinyl_lyrics.audio.source import AudioSourceInfo, BrowserStreamSource
 from vinyl_lyrics.main import create_app
@@ -334,7 +335,7 @@ def test_ws_audio_authentication(monkeypatch: pytest.MonkeyPatch) -> None:
         assert json.loads(ws.receive_text()).get("type") == "hello_ok"
 
 
-def test_switch_to_server_device_disconnects_streamer() -> None:
+def test_switch_to_server_device_disconnects_streamer(monkeypatch: pytest.MonkeyPatch) -> None:
     app = create_app(
         {
             "audio": {"source_id": "browser", "sample_rate": 44100},
@@ -342,6 +343,16 @@ def test_switch_to_server_device_disconnects_streamer() -> None:
         }
     )
     client = TestClient(app)
+
+    class FakeServerSource:
+        def start(self, callback) -> None:
+            self.started = True
+
+        def stop(self) -> None:
+            self.started = False
+
+    fake_info = AudioSourceInfo("input:0", "Test input", "input")
+    fake_source = FakeServerSource()
 
     with client.websocket_connect("/ws/audio") as ws:
         ws.send_text(
@@ -358,8 +369,19 @@ def test_switch_to_server_device_disconnects_streamer() -> None:
         assert json.loads(ws.receive_text()).get("type") == "hello_ok"
         assert app.state.runtime.has_capturer is True
 
-        # User chooses a server device via /api/source
-        client.post("/api/source", json={"source_id": "unavailable"})
+        # Keep the test deterministic: never enumerate or open the CI machine's
+        # physical audio devices (Windows runners may block in native audio APIs).
+        monkeypatch.setattr(capture_module, "resolve_source", lambda source_id: fake_info)
+        monkeypatch.setattr(
+            capture_module,
+            "create_audio_source",
+            lambda info, sample_rate, channels: fake_source,
+        )
+
+        # User chooses a valid server input via /api/source.
+        response = client.post("/api/source", json={"source_id": "input:0"})
+        assert response.status_code == 200
+
         # Streamer receives server_device_selected disconnect message
         disc = json.loads(ws.receive_text())
         assert disc.get("type") == "disconnected"
