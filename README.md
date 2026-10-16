@@ -73,7 +73,8 @@ from other local users. Absolute paths configured explicitly remain absolute.
 | `audio.buffer_seconds` | `15` | Circular audio history kept in memory. |
 | `audio.gain_db` | `0` | Gain applied before analysis. |
 | `audio.sample_rate` | `44100` | Capture sample rate in Hz. |
-| `recognition.provider` | `shazam` | Primary recognition provider: `shazam`, `acrcloud`, or `audd`. |\n| `recognition.fallback_providers` | `[]` | Optional ordered list of providers to try if the primary returns no match or errors, e.g. `[acrcloud]`. |
+| `recognition.provider` | `shazam` | Primary recognition provider: `shazam`, `acrcloud`, or `audd`. |
+| `recognition.fallback_providers` | `[]` | Optional ordered list of providers to try if the primary returns no match or errors, e.g. `[acrcloud]`. |
 | `recognition.interval_seconds` | `45` | Re-identification interval. |
 | `recognition.min_signal_seconds` | `1.0` | Minimum sustained signal before a recognition attempt. |
 | `recognition.track_gap_seconds` | `1.5` | Minimum silence duration to treat a pause as a gap (does not discard the track on its own). |
