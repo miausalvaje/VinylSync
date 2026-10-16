@@ -29,10 +29,10 @@ class SessionManager:
         if default_runtime is not None:
             self.sessions["default"] = default_runtime
 
-    def _create_runtime(self) -> ApplicationRuntime:
+    def _create_runtime(self, session_key: str) -> ApplicationRuntime:
         from vinyl_lyrics.main import ApplicationRuntime
 
-        return ApplicationRuntime(self.config)
+        return ApplicationRuntime(self.config, session_key=session_key)
 
     @staticmethod
     def _ensure_runtime_started(runtime: ApplicationRuntime) -> None:
@@ -55,7 +55,7 @@ class SessionManager:
         runtime = self.sessions.get(key)
         if runtime is None:
             # Create on demand
-            runtime = self._create_runtime()
+            runtime = self._create_runtime(key)
             self.sessions[key] = runtime
         self._ensure_runtime_started(runtime)
         return runtime
@@ -69,7 +69,7 @@ class SessionManager:
                 # May have been created via the sync REST path without loops.
                 self._ensure_runtime_started(runtime)
                 return runtime
-            runtime = self._create_runtime()
+            runtime = self._create_runtime(key)
             self.sessions[key] = runtime
             await runtime.start()
             logger.info("Created isolated audio runtime session for '%s'", key)

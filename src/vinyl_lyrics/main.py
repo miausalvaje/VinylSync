@@ -102,7 +102,7 @@ class AudioSenderSession:
 class ApplicationRuntime:
     """Coordinate continuous capture, analysis, recognition, and clients."""
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any], session_key: str | None = None) -> None:
         audio_config = config.get("audio", {})
         lyrics_config = config.get("lyrics", {})
         recognition = config.get("recognition", {})
@@ -111,7 +111,7 @@ class ApplicationRuntime:
             silence_enter_dbfs=float(audio_config.get("silence_enter_dbfs", -48.0)),
             silence_exit_dbfs=float(audio_config.get("silence_exit_dbfs", -54.0)),
         )
-        self.settings_store = SettingsStore()
+        self.settings_store = SettingsStore(user_key=session_key)
         self.settings = self.settings_store.load(defaults)
         self.capture = ContinuousAudioCapture(
             source_id=self.settings.source_id or audio_config.get("source_id"),
