@@ -116,8 +116,8 @@ python -m vinyl_lyrics.main
 ### 1. Supervisor Action Pattern
 `PlaybackSupervisor` returns `SupervisorAction` dataclasses (`StartRecognition`, `BroadcastEvent`, `ApplyTrack`) which `ApplicationRuntime._execute_actions()` processes. This decouples decision logic from execution.
 
-### 2. Single Capturer Semantics (Browser Mode)
-Only one browser can stream audio at a time via `/ws/audio`. Others receive `busy` response and can request `takeover`.
+### 2. Per-Session Audio Capture Semantics
+Each authenticated user receives an isolated `ApplicationRuntime`, including its capture pipeline and player state. The current `/ws/audio` busy/takeover check is scoped to that runtime, not the whole server process. Browser streams and physical-device capture therefore are not globally shared across user sessions. Multiple runtimes may attempt to open the same physical input; whether that works depends on the audio backend/device. Do not assume this is a global single-turntable stream.
 
 ### 3. Per-User Sessions
 `SessionManager` creates isolated `ApplicationRuntime` instances per authenticated user (keyed by username). Unauthenticated requests use "default" runtime.
