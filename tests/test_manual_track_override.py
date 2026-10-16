@@ -15,6 +15,7 @@ def test_manual_override_does_not_use_lyric_offset_as_track_position() -> None:
         return None
 
     runtime.broadcast = no_broadcast
+    runtime.public_state = lambda: {}
 
     asyncio.run(runtime.override_track(TrackOverride(title="Song", artist="Artist")))
 
