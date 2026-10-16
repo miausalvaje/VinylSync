@@ -22,7 +22,7 @@ def _config(**overrides: str) -> dict[str, str]:
 
 def test_signature_matches_acrcloud_v1_spec() -> None:
     timestamp = "1700000000"
-    expected_string = "\\n".join(
+    expected_string = "\n".join(
         ("POST", _IDENTIFY_PATH, "key", "audio", "1", timestamp)
     )
     expected = base64.b64encode(
