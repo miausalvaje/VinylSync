@@ -6,7 +6,6 @@ import hmac
 import time
 from typing import Any
 
-import httpx
 import pytest
 
 from vinyl_lyrics.recognition import ACRCloudRecognizer, create_recognizer
