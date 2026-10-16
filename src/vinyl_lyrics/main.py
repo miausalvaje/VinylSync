@@ -24,10 +24,10 @@ from vinyl_lyrics.audio.processing import (
 )
 from vinyl_lyrics.audio.source import BrowserStreamSource
 from vinyl_lyrics.config import load_config
-from vinyl_lyrics.paths import resolve_data_path
 from vinyl_lyrics.lyrics.cache import LyricsCache
 from vinyl_lyrics.lyrics.lrclib import LRCLIBClient, LyricResult
 from vinyl_lyrics.lyrics.multi import MultiProviderLyricsClient
+from vinyl_lyrics.paths import resolve_data_path
 from vinyl_lyrics.recognition import create_recognizer
 from vinyl_lyrics.recognition.base import Track
 from vinyl_lyrics.server.models import TrackOverride
