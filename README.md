@@ -53,12 +53,13 @@ py -3.11 -m venv .venv
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 copy .env.example .env
+copy config.example.yaml config.yaml
 ```
 
 ## Configuration
 
-Edit [config.yaml](config.yaml) for defaults and `.env` for provider secrets.
-Do not commit `.env`.
+Copy `config.example.yaml` to `config.yaml` and edit it for local settings.
+Set secrets in `.env`. Do not commit `config.yaml` or `.env`.
 
 Persistent runtime data (user database, JWT signing secret, and the default lyrics cache)
 is stored under the installation's data directory by default. Set `VINYLSYNC_DATA_DIR`
@@ -160,6 +161,7 @@ source .venv/bin/activate
 pip install --upgrade pip
 pip install -e .
 cp .env.example .env
+cp config.example.yaml config.yaml
 ```
 
 Set the authentication token in `.env`:

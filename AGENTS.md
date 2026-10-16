@@ -72,7 +72,7 @@ Static HTML/CSS/JS served by FastAPI. Key JS modules:
 
 ## Configuration
 
-**Primary**: `config.yaml` (committed, version-controlled)
+**Primary**: `config.yaml` (local, uncommitted; copied from `config.example.yaml`)
 - `audio`: source_id, sample_rate, buffer_seconds, gain_db, silence_enter_dbfs, silence_exit_dbfs
 - `recognition`: provider, interval_seconds, min_signal_seconds, track_gap_seconds, break_max_seconds, end_margin_seconds, idle_timeout_seconds, min_sample_seconds
 - `lyrics`: lrclib_base_url, user_agent, cache_path

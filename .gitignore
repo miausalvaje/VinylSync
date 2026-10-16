@@ -18,10 +18,14 @@ venv/
 env/
 ENV/
 
-# Environment and secrets
+# Environment, configuration and secrets
 .env
 .env.*
 !.env.example
+config.yaml
+config.yml
+!config.example.yaml
+!config.example.yml
 
 # Application data
 data/

@@ -14,20 +14,38 @@ from dotenv import load_dotenv
 def _find_root_dir() -> Path:
     # 1. In-tree development (Path(__file__).resolve().parents[2]) if config or pyproject exists
     dev_root = Path(__file__).resolve().parents[2]
-    if (dev_root / "config.yaml").is_file() or (dev_root / "pyproject.toml").is_file():
+    if (
+        (dev_root / "config.yaml").is_file()
+        or (dev_root / "config.example.yaml").is_file()
+        or (dev_root / "pyproject.toml").is_file()
+    ):
         return dev_root
-    # 2. Current working directory if config.yaml exists
-    if (Path.cwd() / "config.yaml").is_file():
+    # 2. Current working directory if config exists
+    if (Path.cwd() / "config.yaml").is_file() or (Path.cwd() / "config.example.yaml").is_file():
         return Path.cwd()
     # 3. Look upward from current working directory
     for parent in Path.cwd().parents:
-        if (parent / "config.yaml").is_file():
+        if (parent / "config.yaml").is_file() or (parent / "config.example.yaml").is_file():
             return parent
     return dev_root
 
 
 ROOT_DIR = _find_root_dir()
-DEFAULT_CONFIG_PATH = ROOT_DIR / "config.yaml"
+
+
+def _resolve_default_config_path() -> Path:
+    if (ROOT_DIR / "config.yaml").is_file():
+        return ROOT_DIR / "config.yaml"
+    if (Path.cwd() / "config.yaml").is_file():
+        return Path.cwd() / "config.yaml"
+    if (ROOT_DIR / "config.example.yaml").is_file():
+        return ROOT_DIR / "config.example.yaml"
+    if (Path.cwd() / "config.example.yaml").is_file():
+        return Path.cwd() / "config.example.yaml"
+    return ROOT_DIR / "config.yaml"
+
+
+DEFAULT_CONFIG_PATH = _resolve_default_config_path()
 
 
 def load_dotenv_if_present() -> None:
@@ -61,6 +79,9 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> dict[str, 
     )
     if not path.is_absolute():
         path = (ROOT_DIR / path).resolve()
+
+    if not path.is_file() and (ROOT_DIR / "config.example.yaml").is_file():
+        path = ROOT_DIR / "config.example.yaml"
 
     with path.open("r", encoding="utf-8") as handle:
         config: dict[str, Any] = yaml.safe_load(handle) or {}
