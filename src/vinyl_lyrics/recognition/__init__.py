@@ -26,8 +26,7 @@ def create_recognizer(
         )
     if selected == "audd":
         raise ValueError(
-            "AudD recognition is not implemented yet; use 'shazam' "
-            "until the adapter is complete."
+            "AudD recognition is not implemented yet; use 'shazam' until the adapter is complete."
         )
 
     raise ValueError(f"Unsupported recognition provider '{selected}'.")
