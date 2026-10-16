@@ -60,6 +60,12 @@ copy .env.example .env
 Edit [config.yaml](config.yaml) for defaults and `.env` for provider secrets.
 Do not commit `.env`.
 
+Persistent runtime data (user database, JWT signing secret, and the default lyrics cache)
+is stored under the installation's data directory by default. Set `VINYLSYNC_DATA_DIR`
+in the environment to move it to a stable writable location, for example
+`/var/lib/vinylsync`. The directory must persist across restarts and be protected
+from other local users. Absolute paths configured explicitly remain absolute.
+
 | Option | Default | Description |
 | --- | --- | --- |
 | `audio.source_id` | `null` | Stable source ID such as `input:0` or `loopback:3`. |
