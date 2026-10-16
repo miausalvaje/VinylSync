@@ -84,14 +84,32 @@ class ContinuousAudioCapture:
             self.source.stop()
 
     def switch_source(self, source_id: str) -> AudioSourceInfo:
-        """Switch sources without restarting the process."""
+        """Switch sources, restoring the previous source if the replacement fails."""
         info = resolve_source(source_id)
         replacement = create_audio_source(info, self.sample_rate, self.channels)
-        if self.source is not None:
-            self.source.stop()
+        previous_info = self.source_info
+        previous_source = self.source
+
+        if previous_source is not None:
+            previous_source.stop()
+        try:
+            replacement.start(self._on_audio)
+        except Exception:
+            try:
+                replacement.stop()
+            except Exception:
+                pass
+            self.source_info = previous_info
+            self.source = previous_source
+            if previous_source is not None:
+                try:
+                    previous_source.start(self._on_audio)
+                except Exception:
+                    logger.exception("Could not restart previous audio source after switch failure")
+            raise
+
         self.source_info = info
         self.source = replacement
-        self.source.start(self._on_audio)
         self._received_samples = 0
         self._last_audio_monotonic = 0.0
         self.buffer.clear()
