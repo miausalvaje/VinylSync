@@ -1,4 +1,5 @@
 from vinyl_lyrics.server import ws
+from vinyl_lyrics.server.users import DEFAULT_USER_MANAGER
 
 
 class FakeWebSocket:
@@ -8,7 +9,14 @@ class FakeWebSocket:
 
 def test_websocket_session_is_revalidated(monkeypatch) -> None:
     monkeypatch.setattr("vinyl_lyrics.server.security.is_auth_required", lambda: True)
-    monkeypatch.setattr(ws, "verify_token", lambda token, client_ip: token == "active-token")
+    monkeypatch.setattr(
+        "vinyl_lyrics.server.users.verify_session_token",
+        lambda token: {"sub": "alice"} if token == "active-token" else None,
+    )
+    monkeypatch.setattr(
+        DEFAULT_USER_MANAGER, "is_user_active", lambda username: username == "alice"
+    )
+    monkeypatch.setattr("vinyl_lyrics.server.security.get_configured_auth_token", lambda: None)
 
     assert ws.websocket_session_is_valid(FakeWebSocket("active-token"))  # type: ignore[arg-type]
     assert not ws.websocket_session_is_valid(FakeWebSocket("revoked-token"))  # type: ignore[arg-type]
