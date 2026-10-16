@@ -25,9 +25,7 @@ class UserSettings(BaseModel):
 class SettingsStore:
     """Read and write settings.json in the platform user config directory."""
 
-    def __init__(
-        self, path: str | Path | None = None, user_key: str | None = None
-    ) -> None:
+    def __init__(self, path: str | Path | None = None, user_key: str | None = None) -> None:
         if path is not None:
             self.path = Path(path)
         elif user_key:
