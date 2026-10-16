@@ -131,7 +131,7 @@ start msedge --kiosk http://127.0.0.1:8000/ --edge-kiosk-type=fullscreen
 ### Shazam
 
 Shazam via `shazamio` is the default provider and does not require a local API key.
-Set `recognition.provider: shazam` and keep the default configuration.
+Set `recognition.provider: shazam` and keep the default configuration. If Shazam does not find a match, VinylSync returns no track unless you configure fallback providers.
 
 ### ACRCloud
 
