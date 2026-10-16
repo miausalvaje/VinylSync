@@ -34,9 +34,7 @@ def test_manual_offset_changes_lyric_clock_not_playback_clock():
 
 def test_manual_offset_does_not_change_track_end_calculations():
     player = PlayerState()
-    track = player.set_track(
-        "Song", "Artist", duration=60.0, manual_offset_seconds=20.0
-    )
+    track = player.set_track("Song", "Artist", duration=60.0, manual_offset_seconds=20.0)
 
     assert player.remaining_seconds(track.started_at_monotonic + 10.0) == 50.0
     assert not player.is_past_end(now=track.started_at_monotonic + 45.0)
