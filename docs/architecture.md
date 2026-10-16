@@ -37,7 +37,7 @@ flowchart LR
 ```
 
 1. The selected audio source streams mono audio into a continuous circular buffer (`ContinuousAudioCapture`). When using the browser capture mode, an `AudioWorkletProcessor` collects 2048-sample Int16 PCM frames and sends them over `/ws/audio`. The backend resamples in-memory via NumPy to the internal sample rate (44.1 kHz).
-2. The buffer feeds spectrum visualization, silence detection, and 8-second recognition windows without duplicating pipeline logic.
+2. The buffer feeds spectrum visualization, silence detection, and 12-second recognition windows without duplicating pipeline logic.
 3. Clock synchronization for browser streams is anchored to the arrival of the first frame, tracking elapsed stream time from received sample counts. Lost frames or transmission gaps are zero-filled, while transient network bursts do not drift the calculated recognition timeline.
 4. Detection logic only triggers a recognition call when there is sustained signal above the threshold for a configured minimum duration.
 5. `PlaybackSupervisor` classifies silences as mid-song breaks, track boundaries, or tonearm lifts, controlling recognition triggers and backoff.
