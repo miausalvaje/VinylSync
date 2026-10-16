@@ -8,9 +8,7 @@ class FakeWebSocket:
 
 def test_websocket_session_is_revalidated(monkeypatch) -> None:
     monkeypatch.setattr("vinyl_lyrics.server.security.is_auth_required", lambda: True)
-    monkeypatch.setattr(
-        ws, "verify_token", lambda token, client_ip: token == "active-token"
-    )
+    monkeypatch.setattr(ws, "verify_token", lambda token, client_ip: token == "active-token")
 
     assert ws.websocket_session_is_valid(FakeWebSocket("active-token"))  # type: ignore[arg-type]
     assert not ws.websocket_session_is_valid(FakeWebSocket("revoked-token"))  # type: ignore[arg-type]
