@@ -538,20 +538,48 @@ class ApplicationRuntime:
             self._recognition_in_progress = False
 
     async def apply_settings(self, settings: UserSettings) -> UserSettings:
-        """Apply and persist settings without restarting the process."""
+        """Apply settings, switching sources before committing persisted values."""
         source_changed = settings.source_id != self.settings.source_id
+        previous_source = self.capture.source
+        previous_source_info = self.capture.source_info
+        source_switched = False
+
+        try:
+            if source_changed and settings.source_id:
+                self.capture.switch_source(settings.source_id)
+                source_switched = True
+            saved_settings = self.settings_store.save(settings)
+        except Exception:
+            # A settings write can fail after the new capture source started.
+            # Restore the previous source and leave in-memory settings untouched.
+            if source_switched:
+                try:
+                    active_source = self.capture.source
+                    if active_source is not None:
+                        active_source.stop()
+                    self.capture.source = previous_source
+                    self.capture.source_info = previous_source_info
+                    if previous_source is not None:
+                        previous_source.start(self.capture._on_audio)
+                    self.capture.clear_buffer()
+                except Exception:
+                    logger.exception(
+                        "Could not restore the previous audio source after settings failure"
+                    )
+            raise
+
+        self.settings = saved_settings
         if (
             source_changed
             and settings.source_id != "browser"
             and self.active_audio_sender is not None
         ):
             await self.disconnect_audio_sender(reason="server_device_selected")
-        self.settings = self.settings_store.save(settings)
+
         self.silence.enter_dbfs = settings.silence_enter_dbfs
         self.silence.exit_dbfs = settings.silence_exit_dbfs
         self.player.set_manual_offset(settings.manual_offset_seconds)
         if source_changed and settings.source_id:
-            self.capture.switch_source(settings.source_id)
             if settings.source_id == "browser" and self.active_audio_sender is None:
                 self.status = "no_source"
             if self._control_task is None or self._control_task.done():
