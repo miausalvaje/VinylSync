@@ -236,9 +236,7 @@ class UserManager:
         clean_user = username.strip()
         if not clean_user:
             return False
-        env_admin = (
-            os.getenv("ADMIN_USERNAME") or os.getenv("VINYLSYNC_ADMIN_USER") or ""
-        ).strip()
+        env_admin = (os.getenv("ADMIN_USERNAME") or os.getenv("VINYLSYNC_ADMIN_USER") or "").strip()
         if env_admin and clean_user.casefold() == env_admin.casefold():
             return True
         with self._connect() as conn:
