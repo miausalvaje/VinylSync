@@ -35,6 +35,7 @@ from vinyl_lyrics.server.security import (
     allowed_hosts,
     allowed_origins,
     get_configured_auth_token,
+    is_auth_required,
 )
 from vinyl_lyrics.settings import SettingsStore, UserSettings
 from vinyl_lyrics.state.player import PlayerState
@@ -714,7 +715,12 @@ def create_app(config: dict[str, Any] | None = None) -> FastAPI:
         app.state.allowed_origins = origins
         app.state.trust_proxy = trust_proxy
         app.state.trusted_proxies = trusted_proxies
-        await runtime.start()
+        # The default runtime is only used when authentication is disabled.
+        # Starting it alongside authenticated per-user runtimes can open the
+        # same physical input a second time without serving any authenticated
+        # client, because those requests resolve to their own runtime.
+        if not is_auth_required():
+            await runtime.start()
         yield
         await session_manager.stop_all()
 
