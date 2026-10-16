@@ -21,11 +21,13 @@ def create_recognizer(
         return ShazamRecognizer()
     if selected == "acrcloud":
         raise ValueError(
-            "ACRCloud recognition is not implemented yet; use 'shazam' until the adapter is complete."
+            "ACRCloud recognition is not implemented yet; use 'shazam' "
+            "until the adapter is complete."
         )
     if selected == "audd":
         raise ValueError(
-            "AudD recognition is not implemented yet; use 'shazam' until the adapter is complete."
+            "AudD recognition is not implemented yet; use 'shazam' "
+            "until the adapter is complete."
         )
 
     raise ValueError(f"Unsupported recognition provider '{selected}'.")
