@@ -406,11 +406,15 @@ class ApplicationRuntime:
         self.locked = locked
 
     def _is_current_track(self, track: Track) -> bool:
-        current = self.player.current_track
+        current = getattr(getattr(self, "player", None), "current_track", None)
+        current_artist = getattr(current, "artist", None)
+        current_title = getattr(current, "title", None)
         return (
             current is not None
-            and current.artist.casefold() == track.artist.casefold()
-            and current.title.casefold() == track.title.casefold()
+            and isinstance(current_artist, str)
+            and isinstance(current_title, str)
+            and current_artist.casefold() == track.artist.casefold()
+            and current_title.casefold() == track.title.casefold()
         )
 
     async def _load_lyrics(self, track: Track) -> None:
