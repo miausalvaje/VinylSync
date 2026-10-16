@@ -231,6 +231,22 @@ class UserManager:
             row = cursor.fetchone()
             return bool(row and row["is_blocked"])
 
+    def is_user_active(self, username: str) -> bool:
+        """Return whether a session subject still exists and is not blocked."""
+        clean_user = username.strip()
+        if not clean_user:
+            return False
+        env_admin = (
+            os.getenv("ADMIN_USERNAME") or os.getenv("VINYLSYNC_ADMIN_USER") or ""
+        ).strip()
+        if env_admin and clean_user.casefold() == env_admin.casefold():
+            return True
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT is_blocked FROM users WHERE username = ?", (clean_user,)
+            ).fetchone()
+        return bool(row is not None and not row["is_blocked"])
+
     def verify_credentials(self, username: str, password: str) -> UserRecord | None:
         """Validate username & password against .env admin credentials or database."""
         clean_user = username.strip()
