@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -24,8 +25,17 @@ class UserSettings(BaseModel):
 class SettingsStore:
     """Read and write settings.json in the platform user config directory."""
 
-    def __init__(self, path: str | Path | None = None) -> None:
-        self.path = Path(path) if path else Path(user_config_dir("VinylSync")) / "settings.json"
+    def __init__(
+        self, path: str | Path | None = None, user_key: str | None = None
+    ) -> None:
+        if path is not None:
+            self.path = Path(path)
+        elif user_key:
+            # Hash rather than use usernames directly to avoid unsafe path components.
+            safe_key = hashlib.sha256(user_key.casefold().encode("utf-8")).hexdigest()[:24]
+            self.path = Path(user_config_dir("VinylSync")) / "users" / safe_key / "settings.json"
+        else:
+            self.path = Path(user_config_dir("VinylSync")) / "settings.json"
 
     def load(self, defaults: UserSettings | None = None) -> UserSettings:
         result = defaults or UserSettings()
