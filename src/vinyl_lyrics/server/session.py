@@ -69,7 +69,7 @@ class SessionManager:
                 # May have been created via the sync REST path without loops.
                 self._ensure_runtime_started(runtime)
                 return runtime
-            runtime = self._create_runtime()
+            runtime = self._create_runtime(key)
             self.sessions[key] = runtime
             await runtime.start()
             logger.info("Created isolated audio runtime session for '%s'", key)
