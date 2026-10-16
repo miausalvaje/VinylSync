@@ -147,7 +147,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         while True:
             try:
                 await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if not websocket_session_is_valid(websocket):
                     await websocket.close(code=1008, reason="Authentication expired or revoked")
                     return
@@ -181,7 +181,7 @@ async def spectrum_endpoint(websocket: WebSocket) -> None:
         while True:
             try:
                 await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if not websocket_session_is_valid(websocket):
                     await websocket.close(code=1008, reason="Authentication expired or revoked")
                     return
@@ -288,7 +288,7 @@ async def audio_stream_endpoint(websocket: WebSocket) -> None:
         while True:
             try:
                 msg = await asyncio.wait_for(websocket.receive(), timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if not websocket_session_is_valid(websocket):
                     await websocket.close(
                         code=1008, reason="Authentication expired or revoked"
