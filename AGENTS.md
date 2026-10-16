@@ -182,7 +182,7 @@ Edit files in `web/js/` and `web/css/`. No build step - served directly.
 
 - Spectrum loop runs at ~40 FPS only when clients connected (`spectrum_clients` set)
 - Control loop sleeps 100ms when idle, processes 250ms audio windows
-- Recognition uses 8-second windows from circular buffer (configurable)
+- Recognition uses 12-second windows from circular buffer by default (configurable)
 - Browser audio resampled in-memory via NumPy to 44.1 kHz
 - Lyrics cached in SQLite (`data/lyrics.sqlite3`) keyed by artist/title/duration
 
