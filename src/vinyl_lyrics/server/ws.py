@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 import time
 from typing import Any
 
@@ -70,6 +71,8 @@ async def authenticate_ws(websocket: WebSocket) -> bool:
         if verify_token(sub_token, peer_ip):
             session = verify_session_token(sub_token)
             websocket.scope["user_key"] = session.get("sub", "admin") if session else "admin"
+            websocket.scope["auth_token"] = sub_token
+            websocket.scope["auth_client_ip"] = peer_ip
             return True
         await websocket.close(code=1008, reason="Authentication failed")
         return False
@@ -77,13 +80,16 @@ async def authenticate_ws(websocket: WebSocket) -> bool:
     try:
         raw = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
         data = json.loads(raw)
+        auth_token = str(data.get("token") or "") if isinstance(data, dict) else ""
         if (
             isinstance(data, dict)
             and data.get("type") == "auth"
-            and verify_token(data.get("token"), peer_ip)
+            and verify_token(auth_token, peer_ip)
         ):
-            session = verify_session_token(data.get("token"))
+            session = verify_session_token(auth_token)
             websocket.scope["user_key"] = session.get("sub", "admin") if session else "admin"
+            websocket.scope["auth_token"] = auth_token
+            websocket.scope["auth_client_ip"] = peer_ip
             await websocket.send_json({"type": "auth_ok"})
             return True
     except Exception:
@@ -91,6 +97,23 @@ async def authenticate_ws(websocket: WebSocket) -> bool:
     verify_token(None, peer_ip)
     await websocket.close(code=1008, reason="Authentication failed")
     return False
+
+
+def websocket_session_is_valid(websocket: WebSocket) -> bool:
+    """Revalidate an authenticated WebSocket without resetting the IP rate limiter."""
+    from vinyl_lyrics.server.security import get_configured_auth_token, is_auth_required
+    from vinyl_lyrics.server.users import DEFAULT_USER_MANAGER, verify_session_token
+
+    if not is_auth_required():
+        return True
+    token = websocket.scope.get("auth_token")
+    if not isinstance(token, str) or not token:
+        return False
+    session = verify_session_token(token)
+    if session is not None:
+        return DEFAULT_USER_MANAGER.is_user_active(str(session.get("sub", "")))
+    expected = get_configured_auth_token()
+    return bool(expected and secrets.compare_digest(token, expected))
 
 
 async def _get_ws_runtime(websocket: WebSocket) -> Any:
@@ -122,7 +145,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     try:
         await websocket.send_json(runtime.public_state())
         while True:
-            await websocket.receive_text()
+            try:
+                await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+            except TimeoutError:
+                if not websocket_session_is_valid(websocket):
+                    await websocket.close(code=1008, reason="Authentication expired or revoked")
+                    return
     except WebSocketDisconnect:
         pass
     finally:
@@ -151,7 +179,12 @@ async def spectrum_endpoint(websocket: WebSocket) -> None:
     runtime.spectrum_clients.add(websocket)
     try:
         while True:
-            await websocket.receive_text()
+            try:
+                await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+            except TimeoutError:
+                if not websocket_session_is_valid(websocket):
+                    await websocket.close(code=1008, reason="Authentication expired or revoked")
+                    return
     except WebSocketDisconnect:
         pass
     finally:
@@ -249,12 +282,24 @@ async def audio_stream_endpoint(websocket: WebSocket) -> None:
 
     bucket = AudioTokenBucket(sample_rate=sample_rate)
 
-    # 4. Audio frame receive loop
+    # 4. Audio frame receive loop; periodically revalidate account status.
+    next_auth_check = time.monotonic() + 5.0
     try:
         while True:
-            msg = await websocket.receive()
+            try:
+                msg = await asyncio.wait_for(websocket.receive(), timeout=5.0)
+            except TimeoutError:
+                if not websocket_session_is_valid(websocket):
+                    await websocket.close(code=1008, reason="Authentication expired or revoked")
+                    break
+                continue
             if msg["type"] == "websocket.disconnect":
                 break
+            if time.monotonic() >= next_auth_check:
+                if not websocket_session_is_valid(websocket):
+                    await websocket.close(code=1008, reason="Authentication expired or revoked")
+                    break
+                next_auth_check = time.monotonic() + 5.0
             raw_bytes: bytes | None = msg.get("bytes")
             if raw_bytes:
                 if len(raw_bytes) > MAX_FRAME_SIZE:

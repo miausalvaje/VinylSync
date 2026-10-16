@@ -163,8 +163,10 @@ def _get_current_user(request: Request) -> dict[str, Any]:
     session = verify_session_token(token)
     if session:
         sub = session.get("sub", "")
-        if DEFAULT_USER_MANAGER.is_user_blocked(sub):
-            raise HTTPException(status_code=403, detail="User account is blocked.")
+        if not DEFAULT_USER_MANAGER.is_user_active(str(sub)):
+            raise HTTPException(
+                status_code=403, detail="User account is blocked or no longer exists."
+            )
         return {"username": sub, "role": session.get("role", "user")}
     # Fallback: if legacy token is used, grant admin role
     legacy = get_configured_auth_token()

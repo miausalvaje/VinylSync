@@ -185,7 +185,7 @@ def verify_token(
 
     session = verify_session_token(provided_token)
     if session is not None:
-        if DEFAULT_USER_MANAGER.is_user_blocked(session.get("sub", "")):
+        if not DEFAULT_USER_MANAGER.is_user_active(str(session.get("sub", ""))):
             limiter.record_failure(client_ip)
             return False
         limiter.record_success(client_ip)
