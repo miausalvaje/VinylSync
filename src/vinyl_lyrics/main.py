@@ -56,6 +56,19 @@ logging.basicConfig(
 _DEBUG_WAV_KEEP = 20
 
 
+def _default_user_settings(config: dict[str, Any]) -> UserSettings:
+    """Build first-run settings from configured audio and UI defaults."""
+    audio_config = config.get("audio", {})
+    ui_config = config.get("ui", {})
+    return UserSettings(
+        gain_db=float(audio_config.get("gain_db", 0.0)),
+        silence_enter_dbfs=float(audio_config.get("silence_enter_dbfs", -48.0)),
+        silence_exit_dbfs=float(audio_config.get("silence_exit_dbfs", -54.0)),
+        font_size=float(ui_config.get("font_size", 1.0)),
+        manual_offset_seconds=float(ui_config.get("manual_offset_seconds", 0.0)),
+    )
+
+
 def _maybe_dump_debug_wav(wav_bytes: bytes, sample_seconds: float) -> Path | None:
     """Save a copy of the recognition window when debugging is enabled.
 
@@ -106,11 +119,7 @@ class ApplicationRuntime:
         audio_config = config.get("audio", {})
         lyrics_config = config.get("lyrics", {})
         recognition = config.get("recognition", {})
-        defaults = UserSettings(
-            gain_db=float(audio_config.get("gain_db", 0.0)),
-            silence_enter_dbfs=float(audio_config.get("silence_enter_dbfs", -48.0)),
-            silence_exit_dbfs=float(audio_config.get("silence_exit_dbfs", -54.0)),
-        )
+        defaults = _default_user_settings(config)
         self.settings_store = SettingsStore(user_key=session_key)
         self.settings = self.settings_store.load(defaults)
         self.capture = ContinuousAudioCapture(
