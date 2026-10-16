@@ -6,9 +6,7 @@ from vinyl_lyrics.recognition import FallbackRecognizer, Track
 
 
 class FakeRecognizer:
-    def __init__(
-        self, name: str, result: Track | None = None, error: Exception | None = None
-    ):
+    def __init__(self, name: str, result: Track | None = None, error: Exception | None = None):
         self.name = name
         self.result = result
         self.error = error
