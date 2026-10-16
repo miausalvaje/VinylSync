@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 import uvicorn
@@ -693,6 +694,11 @@ def create_app(config: dict[str, Any] | None = None) -> FastAPI:
     trusted_proxies = server_config.get("trusted_proxies")
     extra_origins = server_config.get("allowed_origins")
     hosts = allowed_hosts(server_host, server_config.get("allowed_hosts"))
+    if extra_origins:
+        for origin in extra_origins:
+            parsed_host = urlsplit(origin).hostname
+            if parsed_host:
+                hosts.add(parsed_host.casefold())
     origins = allowed_origins(hosts, server_port, extra_origins)
 
     if server_host != "127.0.0.1" and not get_configured_auth_token():

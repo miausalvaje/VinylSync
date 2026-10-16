@@ -255,9 +255,8 @@ class LocalSecurityMiddleware(BaseHTTPMiddleware):
 
         if is_auth_required():
             path = request.url.path
-            is_exempt = path in {"/", "/favicon.svg", "/api/health"} or path.startswith(
-                ("/css/", "/js/", "/api/auth/")
-            )
+            exempt_paths = {"/", "/favicon.svg", "/favicon.ico", "/api/health"}
+            is_exempt = path in exempt_paths or path.startswith(("/css/", "/js/", "/api/auth/"))
             if not is_exempt:
                 client_ip = effective_client_ip(
                     request.headers, peer_ip, self.trust_proxy, self.trusted_proxies

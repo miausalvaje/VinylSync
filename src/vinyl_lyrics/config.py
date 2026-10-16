@@ -10,13 +10,34 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+
+def _find_root_dir() -> Path:
+    # 1. In-tree development (Path(__file__).resolve().parents[2]) if config or pyproject exists
+    dev_root = Path(__file__).resolve().parents[2]
+    if (dev_root / "config.yaml").is_file() or (dev_root / "pyproject.toml").is_file():
+        return dev_root
+    # 2. Current working directory if config.yaml exists
+    if (Path.cwd() / "config.yaml").is_file():
+        return Path.cwd()
+    # 3. Look upward from current working directory
+    for parent in Path.cwd().parents:
+        if (parent / "config.yaml").is_file():
+            return parent
+    return dev_root
+
+
+ROOT_DIR = _find_root_dir()
 DEFAULT_CONFIG_PATH = ROOT_DIR / "config.yaml"
 
 
 def load_dotenv_if_present() -> None:
     """Load environment variables from a local .env file when present."""
-    load_dotenv(ROOT_DIR / ".env")
+    if (ROOT_DIR / ".env").is_file():
+        load_dotenv(ROOT_DIR / ".env")
+    elif (Path.cwd() / ".env").is_file():
+        load_dotenv(Path.cwd() / ".env")
+    else:
+        load_dotenv()
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

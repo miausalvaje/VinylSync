@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +26,35 @@ from vinyl_lyrics.server.users import (
 from vinyl_lyrics.settings import UserSettings
 
 router = APIRouter()
-WEB_ROOT = Path(__file__).resolve().parents[3] / "web"
+
+
+def _find_web_root() -> Path:
+    env_root = os.getenv("VINYLSYNC_WEB_ROOT")
+    if env_root:
+        candidate = Path(env_root).resolve()
+        if (candidate / "index.html").is_file():
+            return candidate
+
+    # Development source tree check (e.g. editable install or running from git checkout)
+    dev_root = Path(__file__).resolve().parents[3] / "web"
+    if (dev_root / "index.html").is_file():
+        return dev_root
+
+    # Current working directory / web
+    cwd_root = Path.cwd() / "web"
+    if (cwd_root / "index.html").is_file():
+        return cwd_root
+
+    # Look upward from cwd and from package location
+    for search_root in (*Path.cwd().parents, *Path(__file__).resolve().parents):
+        candidate = search_root / "web"
+        if (candidate / "index.html").is_file():
+            return candidate
+
+    return dev_root
+
+
+WEB_ROOT = _find_web_root()
 
 
 @router.get("/api/health")
@@ -352,6 +381,12 @@ async def index() -> FileResponse:
 @router.get("/favicon.svg", include_in_schema=False)
 async def favicon() -> FileResponse:
     """Serve the vinyl favicon."""
+    return FileResponse(WEB_ROOT / "favicon.svg", media_type="image/svg+xml")
+
+
+@router.get("/favicon.ico", include_in_schema=False)
+async def favicon_ico() -> FileResponse:
+    """Serve the favicon for legacy browser requests."""
     return FileResponse(WEB_ROOT / "favicon.svg", media_type="image/svg+xml")
 
 
