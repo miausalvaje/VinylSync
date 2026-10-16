@@ -549,7 +549,7 @@ class ApplicationRuntime:
             override.album,
             override.duration,
             override.cover_url,
-            self.settings.manual_offset_seconds,
+            None,  # Manual correction does not provide a recognized playback position.
         )
         self._apply_track(track, locked=True)
         text = override.synced_lyrics or override.plain_lyrics
