@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from vinyl_lyrics.audio.devices import list_audio_sources
 from vinyl_lyrics.server.models import TrackOverride
 from vinyl_lyrics.server.security import (
+    DEFAULT_RATE_LIMITER,
     effective_client_ip,
     get_configured_auth_token,
     is_auth_required,
@@ -88,6 +89,12 @@ async def login(request: Request) -> dict[str, Any]:
         getattr(request.app.state, "trusted_proxies", []),
     )
 
+    # Password-based login is exempt from the generic middleware, so enforce
+    # the same per-IP lockout here. Token login is additionally checked by
+    # verify_token(), which records its own failures and successes.
+    if DEFAULT_RATE_LIMITER.is_locked(client_ip):
+        raise HTTPException(status_code=429, detail="Too many failed attempts. Try again later.")
+
     # Allow direct legacy token login if provided
     if token:
         if verify_token(token, client_ip):
@@ -104,11 +111,14 @@ async def login(request: Request) -> dict[str, Any]:
     try:
         user = DEFAULT_USER_MANAGER.verify_credentials(username, password)
     except ValueError as error:
+        DEFAULT_RATE_LIMITER.record_failure(client_ip)
         raise HTTPException(status_code=403, detail=str(error)) from error
 
     if not user:
+        DEFAULT_RATE_LIMITER.record_failure(client_ip)
         raise HTTPException(status_code=401, detail="Invalid username or password.")
 
+    DEFAULT_RATE_LIMITER.record_success(client_ip)
     session_token = create_session_token(user.username, user.role)
     return {
         "token": session_token,
