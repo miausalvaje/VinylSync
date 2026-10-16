@@ -290,18 +290,14 @@ async def audio_stream_endpoint(websocket: WebSocket) -> None:
                 msg = await asyncio.wait_for(websocket.receive(), timeout=5.0)
             except TimeoutError:
                 if not websocket_session_is_valid(websocket):
-                    await websocket.close(
-                        code=1008, reason="Authentication expired or revoked"
-                    )
+                    await websocket.close(code=1008, reason="Authentication expired or revoked")
                     break
                 continue
             if msg["type"] == "websocket.disconnect":
                 break
             if time.monotonic() >= next_auth_check:
                 if not websocket_session_is_valid(websocket):
-                    await websocket.close(
-                        code=1008, reason="Authentication expired or revoked"
-                    )
+                    await websocket.close(code=1008, reason="Authentication expired or revoked")
                     break
                 next_auth_check = time.monotonic() + 5.0
             raw_bytes: bytes | None = msg.get("bytes")
