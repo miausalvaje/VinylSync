@@ -1,6 +1,10 @@
 import pytest
 
-from vinyl_lyrics.recognition import ACRCloudRecognizer, create_recognizer
+from vinyl_lyrics.recognition import (
+    ACRCloudRecognizer,
+    FallbackRecognizer,
+    create_recognizer,
+)
 
 
 def test_acrcloud_factory_requires_credentials() -> None:
@@ -37,3 +41,34 @@ def test_acrcloud_provider_can_be_created_with_credentials() -> None:
     )
 
     assert isinstance(recognizer, ACRCloudRecognizer)
+
+
+def test_shazam_uses_acrcloud_as_configured_fallback() -> None:
+    recognizer = create_recognizer(
+        config={
+            "recognition": {
+                "provider": "shazam",
+                "fallback_providers": ["acrcloud"],
+                "acrcloud": {
+                    "host": "identify-eu-west-1.acrcloud.com",
+                    "access_key": "key",
+                    "access_secret": "secret",
+                },
+            }
+        }
+    )
+
+    assert isinstance(recognizer, FallbackRecognizer)
+    assert [provider.name for provider in recognizer.providers] == ["shazam", "acrcloud"]
+
+
+def test_duplicate_provider_in_fallback_chain_is_rejected() -> None:
+    with pytest.raises(ValueError, match="configured more than once"):
+        create_recognizer(
+            config={
+                "recognition": {
+                    "provider": "shazam",
+                    "fallback_providers": ["shazam"],
+                }
+            }
+        )
