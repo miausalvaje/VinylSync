@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from vinyl_lyrics.paths import resolve_data_path
+
 logger = logging.getLogger(__name__)
 
 JWT_SECRET_FILE = "data/.jwt_secret"
@@ -66,7 +68,7 @@ def get_server_secret() -> str:
     env_secret = os.getenv("VINYLSYNC_SECRET_KEY")
     if env_secret and env_secret.strip():
         return env_secret.strip()
-    secret_path = Path(JWT_SECRET_FILE)
+    secret_path = resolve_data_path(JWT_SECRET_FILE)
     if secret_path.is_file():
         try:
             return secret_path.read_text("utf-8").strip()
@@ -160,8 +162,8 @@ class InviteRecord:
 class UserManager:
     """SQLite-backed user storage with invitation code support."""
 
-    def __init__(self, db_path: str | Path = USERS_DB_PATH) -> None:
-        self.db_path = Path(db_path)
+    def __init__(self, db_path: str | Path | None = None) -> None:
+        self.db_path = resolve_data_path(db_path or USERS_DB_PATH)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 

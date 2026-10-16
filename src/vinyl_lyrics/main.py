@@ -28,6 +28,7 @@ from vinyl_lyrics.config import load_config
 from vinyl_lyrics.lyrics.cache import LyricsCache
 from vinyl_lyrics.lyrics.lrclib import LRCLIBClient, LyricResult
 from vinyl_lyrics.lyrics.multi import MultiProviderLyricsClient
+from vinyl_lyrics.paths import resolve_data_path
 from vinyl_lyrics.recognition import create_recognizer
 from vinyl_lyrics.recognition.base import Track
 from vinyl_lyrics.server.models import TrackOverride
@@ -134,7 +135,9 @@ class ApplicationRuntime:
             user_agent=str(lyrics_config.get("user_agent", "VinylSync/0.1.0")),
         )
         self.lyrics_client = MultiProviderLyricsClient(lrclib_client=lrclib_client)
-        self.cache = LyricsCache(lyrics_config.get("cache_path", "data/lyrics.sqlite3"))
+        self.cache = LyricsCache(
+            resolve_data_path(lyrics_config.get("cache_path", "data/lyrics.sqlite3"))
+        )
         self.player = PlayerState(
             reidentify_interval=float(recognition.get("interval_seconds", 45))
         )
