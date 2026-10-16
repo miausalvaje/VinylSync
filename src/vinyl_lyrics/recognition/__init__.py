@@ -20,9 +20,10 @@ def create_recognizer(
     if selected == "shazam":
         return ShazamRecognizer()
     if selected == "acrcloud":
-        raise ValueError(
-            "ACRCloud recognition is not implemented yet; use 'shazam' "
-            "until the adapter is complete."
+        acrcloud_config = settings.get("acrcloud", {})
+        return ACRCloudRecognizer(
+            config=acrcloud_config,
+            timeout=float(settings.get("timeout_seconds", 30.0)),
         )
     if selected == "audd":
         raise ValueError(
