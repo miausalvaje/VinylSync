@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 import time
 from typing import Any
 
@@ -99,14 +100,20 @@ async def authenticate_ws(websocket: WebSocket) -> bool:
 
 
 def websocket_session_is_valid(websocket: WebSocket) -> bool:
-    """Revalidate an authenticated WebSocket session against current account status."""
-    from vinyl_lyrics.server.security import is_auth_required
+    """Revalidate an authenticated WebSocket without resetting the IP rate limiter."""
+    from vinyl_lyrics.server.security import get_configured_auth_token, is_auth_required
+    from vinyl_lyrics.server.users import DEFAULT_USER_MANAGER, verify_session_token
 
     if not is_auth_required():
         return True
     token = websocket.scope.get("auth_token")
-    client_ip = websocket.scope.get("auth_client_ip") or "127.0.0.1"
-    return bool(token) and verify_token(str(token), str(client_ip))
+    if not isinstance(token, str) or not token:
+        return False
+    session = verify_session_token(token)
+    if session is not None:
+        return DEFAULT_USER_MANAGER.is_user_active(str(session.get("sub", "")))
+    expected = get_configured_auth_token()
+    return bool(expected and secrets.compare_digest(token, expected))
 
 
 async def _get_ws_runtime(websocket: WebSocket) -> Any:
