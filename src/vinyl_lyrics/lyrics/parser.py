@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from itertools import pairwise
 
 TIMESTAMP_RE = re.compile(
     r"\[(?P<minutes>\d{1,2}):(?P<seconds>\d{2})(?:[.:](?P<milliseconds>\d{1,3}))?\]"
@@ -54,4 +55,27 @@ def extract_lrc_lines(raw_lyric: str) -> list[tuple[float, str]]:
     return parse_lrc(raw_lyric)
 
 
-__all__ = ["parse_lrc", "extract_lrc_lines"]
+# Faster than anyone sings: the fastest rap checked against LRCLIB (Busta
+# Rhymes, "Look at Me Now") peaks below 60 characters per second, while a
+# broken file that crams verses together reaches well over 100.
+_MAX_PLAUSIBLE_CHARS_PER_SECOND = 70.0
+_MIN_CHECKED_LINE_LENGTH = 12
+_MAX_IMPLAUSIBLE_LINES = 2
+
+
+def has_implausible_timing(raw_lyric: str) -> bool:
+    """Detect synced lyrics whose timestamps leave lines too little time to be sung."""
+    lines = [(start, text) for start, text in parse_lrc(raw_lyric) if text]
+    implausible = 0
+    for (start, text), (next_start, _) in pairwise(lines):
+        gap = next_start - start
+        if (
+            len(text) >= _MIN_CHECKED_LINE_LENGTH
+            and gap > 0
+            and len(text) / gap > _MAX_PLAUSIBLE_CHARS_PER_SECOND
+        ):
+            implausible += 1
+    return implausible > _MAX_IMPLAUSIBLE_LINES
+
+
+__all__ = ["parse_lrc", "extract_lrc_lines", "has_implausible_timing"]
