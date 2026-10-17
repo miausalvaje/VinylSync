@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import logging
 import time
 from typing import Any
 from urllib.parse import urlsplit
@@ -20,6 +21,10 @@ from vinyl_lyrics.recognition.base import (
 
 _IDENTIFY_PATH = "/v1/identify"
 _MAX_SAMPLE_BYTES = 5 * 1024 * 1024
+_DEEZER_ALBUM_URL = "https://api.deezer.com/album"
+_COVER_TIMEOUT_SECONDS = 5.0
+
+logger = logging.getLogger(__name__)
 
 
 class ACRCloudRecognizer(BaseRecognizer):
@@ -106,6 +111,52 @@ class ACRCloudRecognizer(BaseRecognizer):
                     return cover
         return None
 
+    @staticmethod
+    def _extract_sample_start(payload: dict[str, Any]) -> float | None:
+        """Return the song position matching the *start* of the sample, in seconds.
+
+        The runtime adds the time elapsed since the sample started, as Shazam
+        reports the sample start. ACRCloud's play_offset_ms points at the end of
+        the matched audio instead, so using it directly runs lyrics one whole
+        recognition window (~12 s) ahead.
+        """
+        db_begin_ms = coerce_float(payload.get("db_begin_time_offset_ms"))
+        if db_begin_ms is not None:
+            sample_begin_ms = coerce_float(payload.get("sample_begin_time_offset_ms"), 0.0) or 0.0
+            return max(0.0, (db_begin_ms - sample_begin_ms) / 1000.0)
+
+        play_offset_ms = coerce_float(payload.get("play_offset_ms"))
+        if play_offset_ms is not None:
+            sample_end_ms = coerce_float(payload.get("sample_end_time_offset_ms"), 0.0) or 0.0
+            return max(0.0, (play_offset_ms - sample_end_ms) / 1000.0)
+
+        return coerce_float(payload.get("offset_seconds"))
+
+    @staticmethod
+    def _deezer_album_id(payload: dict[str, Any]) -> str | None:
+        external = payload.get("external_metadata")
+        deezer = external.get("deezer") if isinstance(external, dict) else None
+        album = deezer.get("album") if isinstance(deezer, dict) else None
+        album_id = str(album.get("id") or "").strip() if isinstance(album, dict) else ""
+        return album_id if album_id.isdigit() else None
+
+    async def _fetch_deezer_cover(self, payload: dict[str, Any]) -> str | None:
+        """Look up album artwork on Deezer; Identify results carry only its IDs."""
+        album_id = self._deezer_album_id(payload)
+        if album_id is None:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=_COVER_TIMEOUT_SECONDS) as client:
+                response = await client.get(f"{_DEEZER_ALBUM_URL}/{album_id}")
+                response.raise_for_status()
+                album: Any = response.json()
+        except (httpx.HTTPError, ValueError) as error:
+            logger.info("Deezer artwork lookup failed for album %s: %s", album_id, error)
+            return None
+        if not isinstance(album, dict):
+            return None
+        return normalize_cover_url(album.get("cover_xl") or album.get("cover_big"))
+
     @classmethod
     def _build_track(cls, payload: dict[str, Any]) -> Track | None:
         """Normalize an ACRCloud music metadata entry into VinylSync's Track."""
@@ -134,12 +185,7 @@ class ACRCloudRecognizer(BaseRecognizer):
             if duration_ms is not None
             else coerce_float(payload.get("duration"))
         )
-        offset_ms = coerce_float(payload.get("play_offset_ms"))
-        offset_seconds = (
-            offset_ms / 1000.0
-            if offset_ms is not None
-            else coerce_float(payload.get("offset_seconds"))
-        )
+        offset_seconds = cls._extract_sample_start(payload)
 
         return Track(
             title=str(title).strip(),
@@ -199,6 +245,8 @@ class ACRCloudRecognizer(BaseRecognizer):
             if isinstance(item, dict):
                 track = self._build_track(item)
                 if track is not None:
+                    if track.cover_url is None:
+                        track.cover_url = await self._fetch_deezer_cover(item)
                     return track
         return None
 
