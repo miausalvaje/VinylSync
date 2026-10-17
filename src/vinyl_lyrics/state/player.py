@@ -5,6 +5,14 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
+# Recognition position estimates jitter by about a second between samples.
+# Larger differences are real jumps (a skipped or edited section) and are
+# applied at once; smaller ones are blended in, so the error of a biased first
+# match fades over a few re-checks instead of persisting all track long.
+_REBASE_THRESHOLD_SECONDS = 1.5
+_MIN_CORRECTION_SECONDS = 0.25
+_SMALL_CORRECTION_GAIN = 0.5
+
 
 @dataclass(slots=True)
 class TrackState:
@@ -128,13 +136,17 @@ class PlayerState:
 
         timestamp = time.monotonic() if now is None else now
         current_offset = timestamp - self.current_track.started_at_monotonic
-        delta = abs(detected_offset - current_offset)
-        if delta > 1.5:
-            self.current_track.offset_seconds = detected_offset
-            self.current_track.started_at_monotonic = timestamp - detected_offset
-            self.last_recheck_at = timestamp
-            return detected_offset
-        return self.current_track.offset_seconds
+        delta = detected_offset - current_offset
+        if abs(delta) > _REBASE_THRESHOLD_SECONDS:
+            corrected = detected_offset
+        elif abs(delta) >= _MIN_CORRECTION_SECONDS:
+            corrected = current_offset + delta * _SMALL_CORRECTION_GAIN
+        else:
+            return self.current_track.offset_seconds
+        self.current_track.offset_seconds = corrected
+        self.current_track.started_at_monotonic = timestamp - corrected
+        self.last_recheck_at = timestamp
+        return corrected
 
     def reset_recheck_timer(self, now: float | None = None) -> None:
         """Reset the timer used for periodic re-identification."""
