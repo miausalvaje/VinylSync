@@ -72,11 +72,17 @@ def test_break_in_middle_of_song() -> None:
     assert actions[0].cancel_current is True
     assert supervisor.status == "playing"
 
-    # Same song verified with small drift (<= 1.5s): no offset adjustment event
-    same_track = Track("Song A", "Artist A", offset_seconds=94.5)
+    # Same song verified with tiny jitter (< 0.25s): no offset adjustment event
+    same_track = Track("Song A", "Artist A", offset_seconds=94.1)
     result_actions = supervisor.handle_recognition_success(same_track, background=True)
     assert result_actions == []
     assert supervisor.status == "playing"
+
+    # Same song verified with small drift (<= 1.5s): half corrected and state emitted
+    nudged_track = Track("Song A", "Artist A", offset_seconds=95.0)
+    result_actions = supervisor.handle_recognition_success(nudged_track, background=True)
+    assert result_actions == [BroadcastEvent("state")]
+    assert player.elapsed_seconds(clock()) == pytest.approx(94.5, abs=0.05)
 
     # Same song verified with large drift (> 1.5s): offset adjusted and state emitted
     drifted_track = Track("Song A", "Artist A", offset_seconds=98.0)

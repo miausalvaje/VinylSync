@@ -350,7 +350,7 @@ class PlaybackSupervisor:
             if track.offset_seconds is not None:
                 prev_offset = current.offset_seconds
                 new_offset = self.player.adjust_offset_if_needed(track.offset_seconds, now=now)
-                if abs(new_offset - prev_offset) > 1.5:
+                if new_offset != prev_offset:
                     return [BroadcastEvent("state")]
             return []
 
