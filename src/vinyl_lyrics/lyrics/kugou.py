@@ -19,6 +19,7 @@ class KugouLyricsClient:
 
     SEARCH_URL = "http://lyrics.kugou.com/search"
     DOWNLOAD_URL = "http://lyrics.kugou.com/download"
+    SONG_SEARCH_URL = "http://mobilecdn.kugou.com/api/v3/search/song"
 
     def __init__(self, timeout: float = 8.0, user_agent: str = "VinylSync/0.1.0") -> None:
         self.timeout = timeout
@@ -63,35 +64,91 @@ class KugouLyricsClient:
             seen_queries.add(q.casefold())
 
             candidate = await self._find_best_candidate(q, artist_name, clean_track, duration)
-            if candidate is not None:
-                lrc_text = await self._download_lyrics(candidate["id"], candidate["accesskey"])
-                if lrc_text and lrc_text.strip():
-                    logger.info("Found synced lyrics on Kugou for %s - %s", artist_name, track_name)
-                    return LyricResult(
-                        text=lrc_text.strip(),
-                        synced=True,
-                        title=candidate.get("song") or track_name,
-                        artist=candidate.get("singer") or artist_name,
-                        album=album_name or "",
-                        duration=duration,
-                    )
+            result = await self._lyrics_from_candidate(
+                candidate, artist_name, track_name, album_name, duration
+            )
+            if result is not None:
+                return result
 
+        # The lyrics index only matches artists spelled exactly as Kugou stores
+        # them ("ELO", not "Electric Light Orchestra"). Its song search is fuzzier
+        # and returns a hash that the lyrics index can look up instead.
+        song_hash = await self._find_song_hash(f"{artist_name} {clean_track}", clean_track)
+        if song_hash is not None:
+            candidate = await self._find_best_candidate(
+                None, artist_name, clean_track, duration, song_hash=song_hash
+            )
+            return await self._lyrics_from_candidate(
+                candidate, artist_name, track_name, album_name, duration
+            )
+
+        return None
+
+    async def _lyrics_from_candidate(
+        self,
+        candidate: dict[str, Any] | None,
+        artist_name: str,
+        track_name: str,
+        album_name: str | None,
+        duration: float | None,
+    ) -> LyricResult | None:
+        if candidate is None:
+            return None
+        lrc_text = await self._download_lyrics(candidate["id"], candidate["accesskey"])
+        if not lrc_text or not lrc_text.strip():
+            return None
+        logger.info("Found synced lyrics on Kugou for %s - %s", artist_name, track_name)
+        return LyricResult(
+            text=lrc_text.strip(),
+            synced=True,
+            title=candidate.get("song") or track_name,
+            artist=candidate.get("singer") or artist_name,
+            album=album_name or "",
+            duration=duration,
+        )
+
+    async def _find_song_hash(self, keyword: str, track_name: str) -> str | None:
+        """Return the hash of the first song-search hit whose name contains the track."""
+        params: dict[str, Any] = {"format": "json", "page": 1, "pagesize": 10, "keyword": keyword}
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+                response = await client.get(self.SONG_SEARCH_URL, params=params)
+                if response.status_code != 200:
+                    return None
+                data = response.json()
+        except (httpx.HTTPError, OSError, ValueError):
+            return None
+
+        info = data.get("data", {}).get("info") if isinstance(data, dict) else None
+        if not isinstance(info, list):
+            return None
+        target = track_name.casefold()
+        for item in info:
+            if not isinstance(item, dict):
+                continue
+            if target in str(item.get("songname") or "").casefold() and item.get("hash"):
+                return str(item["hash"])
         return None
 
     async def _find_best_candidate(
         self,
-        keyword: str,
+        keyword: str | None,
         artist_name: str,
         track_name: str,
         duration: float | None = None,
+        *,
+        song_hash: str | None = None,
     ) -> dict[str, Any] | None:
         """Query Kugou search endpoint and return the highest-scoring candidate."""
         params: dict[str, Any] = {
             "ver": 1,
             "man": "yes",
             "client": "pc",
-            "keyword": keyword,
         }
+        if keyword is not None:
+            params["keyword"] = keyword
+        if song_hash is not None:
+            params["hash"] = song_hash
         if duration is not None:
             params["duration"] = int(round(duration * 1000))
 

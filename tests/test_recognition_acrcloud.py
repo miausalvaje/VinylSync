@@ -6,6 +6,7 @@ import hmac
 import time
 from typing import Any
 
+import httpx
 import pytest
 
 from vinyl_lyrics.recognition import ACRCloudRecognizer, create_recognizer
@@ -192,6 +193,125 @@ async def test_oversized_sample_is_rejected() -> None:
     recognizer = ACRCloudRecognizer(_config())
     with pytest.raises(ValueError, match="5 MiB"):
         await recognizer.recognize(b"x" * (5 * 1024 * 1024 + 1))
+
+
+def test_offset_uses_matched_start_not_play_offset() -> None:
+    # Values from a real Identify response for a 12 s sample: play_offset_ms
+    # points at the end of the match, db_begin at the position of its start.
+    track = ACRCloudRecognizer._build_track(
+        {
+            "title": "Song title",
+            "artists": [{"name": "Artist"}],
+            "play_offset_ms": 58980,
+            "sample_begin_time_offset_ms": 0,
+            "sample_end_time_offset_ms": 11360,
+            "db_begin_time_offset_ms": 47240,
+            "db_end_time_offset_ms": 58600,
+        }
+    )
+
+    assert track is not None
+    assert track.offset_seconds == pytest.approx(47.24)
+
+
+def test_offset_falls_back_to_play_offset_minus_sample_end() -> None:
+    track = ACRCloudRecognizer._build_track(
+        {
+            "title": "Song title",
+            "artists": [{"name": "Artist"}],
+            "play_offset_ms": 58980,
+            "sample_end_time_offset_ms": 11360,
+        }
+    )
+
+    assert track is not None
+    assert track.offset_seconds == pytest.approx(47.62)
+
+
+def _deezer_match() -> dict[str, Any]:
+    return {
+        "status": {"code": 0, "msg": "Success"},
+        "metadata": {
+            "music": [
+                {
+                    "title": "Song title",
+                    "artists": [{"name": "Artist"}],
+                    "db_begin_time_offset_ms": 30000,
+                    "external_metadata": {
+                        "deezer": {"album": {"id": "51050572", "name": "Album"}},
+                    },
+                }
+            ]
+        },
+    }
+
+
+class _JsonResponse:
+    def __init__(self, payload: Any) -> None:
+        self.payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> Any:
+        return self.payload
+
+
+@pytest.mark.asyncio
+async def test_missing_cover_is_resolved_from_deezer_album(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requested: list[str] = []
+
+    class FakeClient:
+        def __init__(self, timeout: float) -> None:
+            pass
+
+        async def __aenter__(self) -> FakeClient:
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            return None
+
+        async def post(self, *args: Any, **kwargs: Any) -> _JsonResponse:
+            return _JsonResponse(_deezer_match())
+
+        async def get(self, url: str) -> _JsonResponse:
+            requested.append(url)
+            return _JsonResponse({"cover_xl": "https://cdn.example.com/1000x1000.jpg"})
+
+    monkeypatch.setattr("vinyl_lyrics.recognition.acrcloud.httpx.AsyncClient", FakeClient)
+    track = await ACRCloudRecognizer(_config()).recognize(b"sample")
+
+    assert track is not None
+    assert track.cover_url == "https://cdn.example.com/1000x1000.jpg"
+    assert requested == ["https://api.deezer.com/album/51050572"]
+
+
+@pytest.mark.asyncio
+async def test_deezer_failure_keeps_track_without_cover(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeClient:
+        def __init__(self, timeout: float) -> None:
+            pass
+
+        async def __aenter__(self) -> FakeClient:
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            return None
+
+        async def post(self, *args: Any, **kwargs: Any) -> _JsonResponse:
+            return _JsonResponse(_deezer_match())
+
+        async def get(self, url: str) -> _JsonResponse:
+            raise httpx.ConnectTimeout("timed out")
+
+    monkeypatch.setattr("vinyl_lyrics.recognition.acrcloud.httpx.AsyncClient", FakeClient)
+    track = await ACRCloudRecognizer(_config()).recognize(b"sample")
+
+    assert track is not None
+    assert track.title == "Song title"
+    assert track.cover_url is None
 
 
 @pytest.mark.parametrize("provider", ["audd"])

@@ -8,6 +8,7 @@ from typing import Any
 
 from vinyl_lyrics.lyrics.kugou import KugouLyricsClient
 from vinyl_lyrics.lyrics.lrclib import LRCLIBClient, LyricResult
+from vinyl_lyrics.lyrics.parser import has_implausible_timing
 
 logger = logging.getLogger(__name__)
 
@@ -30,29 +31,41 @@ class MultiProviderLyricsClient:
         album_name: str | None = None,
         duration: float | None = None,
     ) -> LyricResult | None:
-        """Query LRCLIB first; if not found or on failure, fall back to Kugou."""
+        """Query LRCLIB first; fall back to Kugou when it has nothing or bad timing.
+
+        Mistimed LRCLIB lyrics are still returned when Kugou has no better
+        synced version.
+        """
+        result: LyricResult | None = None
         try:
             result = await self.lrclib.get_lyrics(artist_name, track_name, album_name, duration)
-            if result is not None:
-                return result
         except Exception as error:
             logger.warning("LRCLIB lookup failed for %s - %s: %s", artist_name, track_name, error)
 
-        logger.info(
-            "LRCLIB has no lyrics for %s - %s. Trying Kugou fallback...",
-            artist_name,
-            track_name,
-        )
+        if result is not None:
+            if not (result.synced and has_implausible_timing(result.text)):
+                return result
+            logger.info(
+                "LRCLIB synced lyrics for %s - %s look mistimed. Trying Kugou fallback...",
+                artist_name,
+                track_name,
+            )
+        else:
+            logger.info(
+                "LRCLIB has no lyrics for %s - %s. Trying Kugou fallback...",
+                artist_name,
+                track_name,
+            )
         try:
             kugou_result = await self.kugou.get_lyrics(
                 artist_name, track_name, album_name, duration
             )
-            if kugou_result is not None:
+            if kugou_result is not None and not has_implausible_timing(kugou_result.text):
                 return kugou_result
         except Exception as error:
             logger.warning("Kugou lookup failed for %s - %s: %s", artist_name, track_name, error)
 
-        return None
+        return result
 
     async def search(self, query: str) -> list[dict[str, Any]]:
         """Combine search results from both providers for manual track correction."""
