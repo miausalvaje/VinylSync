@@ -76,6 +76,11 @@ class PlaybackSupervisor:
         self.track_gap_pending = False
         self.silence_started_monotonic: float | None = None
         self.silence_type: str | None = None
+        # Start of the fresh audio a confirmation sample must be cut from. A
+        # confirmation needs audio the doubtful match did not hear: re-sending
+        # an overlapping window just repeats the same answer.
+        self.confirmation_since: float | None = None
+        self._confirming = False
         self._pending_candidate: Track | None = None
         self._pending_candidate_at: float | None = None
         self._pending_candidate_count: int = 0
@@ -253,7 +258,22 @@ class PlaybackSupervisor:
                 and self.status == "playing"
                 and not self.locked
             ):
-                if (
+                if self.confirmation_since is not None:
+                    if (
+                        not recognition_busy
+                        and now >= self.next_recognition_at
+                        and now - self.confirmation_since >= self.min_sample_seconds
+                    ):
+                        actions.append(
+                            StartRecognition(
+                                since=self.confirmation_since,
+                                min_sample_seconds=self.min_sample_seconds,
+                                background=True,
+                            )
+                        )
+                        self.confirmation_since = None
+                        self._confirming = True
+                elif (
                     self.player.needs_reidentification(now)
                     and now >= self.next_recognition_at
                     and not recognition_busy
@@ -282,6 +302,7 @@ class PlaybackSupervisor:
         retry_delays = (8.0, 16.0, 30.0)
         delay = retry_delays[min(self.failed_attempts - 1, len(retry_delays) - 1)]
         self.next_recognition_at = now + delay
+        self._retry_confirmation(now)
         # NOTE: the pending track-change candidate is intentionally kept here.
         # Mid-play recognition is flaky (short windows, vinyl noise); a single
         # miss must not wipe an already half-confirmed track change, otherwise
@@ -304,6 +325,7 @@ class PlaybackSupervisor:
         retry_delays = (8.0, 16.0, 30.0)
         delay = retry_delays[min(self.failed_attempts - 1, len(retry_delays) - 1)]
         self.next_recognition_at = now + delay
+        self._retry_confirmation(now)
         # Same rationale as handle_recognition_no_track: a half-confirmed
         # track-change candidate survives transient recognition errors.
 
@@ -313,6 +335,34 @@ class PlaybackSupervisor:
         self.status = "idle"
         return [BroadcastEvent("error", {"event": "error", "message": str(error)})]
 
+    def _request_confirmation(self, now: float) -> None:
+        """Schedule a recognition of audio recorded from ``now`` on."""
+        self.confirmation_since = now
+        self.next_recognition_at = now + self.min_sample_seconds
+
+    def _retry_confirmation(self, now: float) -> None:
+        """After a failed confirmation sample, try again once the backoff ends.
+
+        Waiting for the regular re-check instead would leave a suspected jump
+        or track change unresolved for most of a minute.
+        """
+        if not self._confirming:
+            return
+        self._confirming = False
+        if self.player.current_track is not None and (
+            self.player.needs_position_confirmation or self._pending_candidate is not None
+        ):
+            self.confirmation_since = now
+
+    def _verify_new_track(self, track: Track, now: float) -> None:
+        """Check a new track's starting position with a second, fresh sample.
+
+        About one match in ten lands a beat or two off; for the first match of
+        a track that would otherwise last until the regular re-check.
+        """
+        if track.offset_seconds is not None:
+            self._request_confirmation(now)
+
     def handle_recognition_success(
         self,
         track: Track,
@@ -321,6 +371,8 @@ class PlaybackSupervisor:
         """Handle successfully recognized track."""
         now = self.clock()
         current = self.player.current_track
+        self.confirmation_since = None
+        self._confirming = False
 
         if current is None:
             self.failed_attempts = 0
@@ -331,6 +383,7 @@ class PlaybackSupervisor:
             self._pending_candidate = None
             self._pending_candidate_at = None
             self._pending_candidate_count = 0
+            self._verify_new_track(track, now)
             return [
                 ApplyTrack(track, locked=False),
                 BroadcastEvent("track"),
@@ -349,8 +402,18 @@ class PlaybackSupervisor:
             self.next_recognition_at = now + self.player.reidentify_interval
             if track.offset_seconds is not None:
                 prev_offset = current.offset_seconds
-                new_offset = self.player.adjust_offset_if_needed(track.offset_seconds, now=now)
-                if new_offset != prev_offset:
+                prev_rate = current.playback_rate
+                new_offset = self.player.adjust_offset_if_needed(
+                    track.offset_seconds, now=now, playback_rate=track.playback_rate
+                )
+                if self.player.needs_position_confirmation:
+                    logger.info(
+                        "Position %.2fs disagrees with the clock (%.2fs); confirming",
+                        track.offset_seconds,
+                        current.position(now),
+                    )
+                    self._request_confirmation(now)
+                if new_offset != prev_offset or current.playback_rate != prev_rate:
                     return [BroadcastEvent("state")]
             return []
 
@@ -381,6 +444,7 @@ class PlaybackSupervisor:
             self.failed_attempts = 0
             self.status = "playing"
             self.next_recognition_at = now + self.player.reidentify_interval
+            self._verify_new_track(track, now)
             return [
                 ApplyTrack(track, locked=False),
                 BroadcastEvent("track"),
@@ -391,13 +455,9 @@ class PlaybackSupervisor:
             track.artist,
             track.title,
         )
-        return [
-            StartRecognition(
-                since=now,
-                min_sample_seconds=self.min_sample_seconds,
-                background=True,
-            )
-        ]
+        self.player.reset_recheck_timer(now)
+        self._request_confirmation(now)
+        return []
 
 
 __all__ = [

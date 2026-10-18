@@ -72,24 +72,38 @@ def test_break_in_middle_of_song() -> None:
     assert actions[0].cancel_current is True
     assert supervisor.status == "playing"
 
-    # Same song verified with tiny jitter (< 0.25s): no offset adjustment event
-    same_track = Track("Song A", "Artist A", offset_seconds=94.1)
+    # Same song verified within measurement noise: no offset adjustment event
+    same_track = Track("Song A", "Artist A", offset_seconds=94.03)
     result_actions = supervisor.handle_recognition_success(same_track, background=True)
     assert result_actions == []
     assert supervisor.status == "playing"
 
-    # Same song verified with small drift (<= 1.5s): half corrected and state emitted
-    nudged_track = Track("Song A", "Artist A", offset_seconds=95.0)
+    # Same song verified with a small error: applied and state emitted
+    nudged_track = Track("Song A", "Artist A", offset_seconds=94.12)
     result_actions = supervisor.handle_recognition_success(nudged_track, background=True)
     assert result_actions == [BroadcastEvent("state")]
-    assert player.elapsed_seconds(clock()) == pytest.approx(94.5, abs=0.05)
+    assert player.elapsed_seconds(clock()) == pytest.approx(94.12, abs=0.01)
 
-    # Same song verified with large drift (> 1.5s): offset adjusted and state emitted
+    # A large jump is held until a fresh sample confirms it
     drifted_track = Track("Song A", "Artist A", offset_seconds=98.0)
     result_actions = supervisor.handle_recognition_success(drifted_track, background=True)
-    assert len(result_actions) == 1
-    assert isinstance(result_actions[0], BroadcastEvent)
-    assert result_actions[0].event == "state"
+    assert result_actions == []
+    assert player.elapsed_seconds(clock()) == pytest.approx(94.12, abs=0.01)
+    assert supervisor.confirmation_since == clock()
+
+    confirm_from = clock()
+    clock.advance(5.0)
+    silence = SilenceState(active=True, became_active=False, became_silent=False, silent_for=0.0)
+    actions = supervisor.handle_silence(silence, recognition_busy=False)
+    assert actions == [
+        StartRecognition(since=confirm_from, min_sample_seconds=5.0, background=True)
+    ]
+
+    confirmed = Track("Song A", "Artist A", offset_seconds=103.0)
+    result_actions = supervisor.handle_recognition_success(confirmed, background=True)
+    assert result_actions == [BroadcastEvent("state")]
+    assert player.elapsed_seconds(clock()) == pytest.approx(103.0)
+    assert supervisor.confirmation_since is None
 
 
 def test_silence_near_end_is_boundary() -> None:
@@ -194,13 +208,22 @@ def test_verification_debounces_different_song() -> None:
 
     different_track = Track("Song B", "Artist B", offset_seconds=10.0)
 
-    # First detection of different track: requests confirmation sample, does NOT switch
+    # First detection of different track: does NOT switch, and the confirmation
+    # waits for fresh audio instead of re-sending an overlapping window.
+    candidate_at = clock()
     actions1 = supervisor.handle_recognition_success(different_track, background=True)
-    assert len(actions1) == 1
-    assert isinstance(actions1[0], StartRecognition)
-    assert actions1[0].background is True
+    assert actions1 == []
     assert player.current_track is not None and player.current_track.title == "Song A"
     assert supervisor.status == "playing"
+
+    signal = SilenceState(active=True, became_active=False, became_silent=False, silent_for=0.0)
+    clock.advance(1.0)
+    assert supervisor.handle_silence(signal, recognition_busy=False) == []
+    clock.advance(4.0)
+    assert supervisor.handle_silence(signal, recognition_busy=False) == [
+        StartRecognition(since=candidate_at, min_sample_seconds=5.0, background=True)
+    ]
+    assert supervisor.handle_silence(signal, recognition_busy=False) == []
 
     # Second matching detection of different track: confirms switch!
     actions2 = supervisor.handle_recognition_success(different_track, background=True)
@@ -209,6 +232,38 @@ def test_verification_debounces_different_song() -> None:
     assert actions2[0].track.title == "Song B"
     assert isinstance(actions2[1], BroadcastEvent)
     assert actions2[1].event == "track"
+
+
+def test_failed_confirmation_is_retried_after_backoff() -> None:
+    """A suspected jump must not wait for the regular re-check when Shazam misses."""
+    clock = FakeClock(1000.0)
+    player = PlayerState()
+    player.set_track("Song A", "Artist A", duration=200.0, offset_seconds=0.0)
+    assert player.current_track is not None
+    player.current_track.started_at_monotonic = clock() - 60.0
+    player.current_track.fixes.clear()
+    supervisor = PlaybackSupervisor(player=player, clock=clock, status="playing")
+    signal = SilenceState(active=True, became_active=False, became_silent=False, silent_for=0.0)
+
+    supervisor.handle_recognition_success(Track("Song A", "Artist A", offset_seconds=75.0))
+    assert player.needs_position_confirmation
+    clock.advance(5.0)
+    assert len(supervisor.handle_silence(signal, recognition_busy=False)) == 1
+
+    missed_at = clock()
+    assert supervisor.handle_recognition_no_track(background=True) == []
+    assert supervisor.confirmation_since == missed_at
+    clock.advance(7.9)
+    assert supervisor.handle_silence(signal, recognition_busy=False) == []
+    clock.advance(0.1)
+    assert supervisor.handle_silence(signal, recognition_busy=False) == [
+        StartRecognition(since=missed_at, min_sample_seconds=5.0, background=True)
+    ]
+
+    # Two samples agree on the jump: applied.
+    result = supervisor.handle_recognition_success(Track("Song A", "Artist A", offset_seconds=88.0))
+    assert result == [BroadcastEvent("state")]
+    assert player.elapsed_seconds(clock()) == pytest.approx(88.0)
 
 
 def test_verification_no_result_applies_backoff_and_stays_playing() -> None:

@@ -136,7 +136,8 @@ def test_track_change_survives_flaky_mid_play_miss() -> None:
 
     different = Track("Song B", "Artist B", offset_seconds=10.0)
     first = supervisor.handle_recognition_success(different, background=True)
-    assert len(first) == 1 and isinstance(first[0], StartRecognition)
+    assert first == []
+    assert supervisor.confirmation_since is not None
 
     # Flaky mid-play miss must not wipe the half-confirmed candidate.
     missed = supervisor.handle_recognition_no_track(background=True)
@@ -161,7 +162,8 @@ def test_stale_track_change_candidate_expires() -> None:
     supervisor.handle_recognition_success(different, background=True)
     clock.advance(61.0)
     retry = supervisor.handle_recognition_success(different, background=True)
-    assert len(retry) == 1 and isinstance(retry[0], StartRecognition)
+    assert retry == []
+    assert supervisor.confirmation_since == clock()
     assert player.current_track is not None and player.current_track.title == "Song A"
 
 
