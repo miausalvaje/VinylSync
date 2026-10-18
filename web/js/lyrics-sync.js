@@ -3,47 +3,61 @@ export function setupLyricsSync(store) {
   const column = container ? container.parentElement : null;
   let lines = [];
   let isSynced = false;
-  let startedAt = 0;
   let activeIndex = -1;
   let manualScrollTimeout = null;
   let isManualScrolling = false;
   let currentScrollOffset = 0;
+  // Lyric clock: position at clockAt (performance.now() seconds), advancing at
+  // the turntable speed measured by the server.
+  let clockElapsed = 0;
+  let clockAt = performance.now() / 1000;
+  let clockRate = 1;
+  let renderedKey = null;
+  let lyricsEnded = false;
 
-  store.onState((payload) => {
+  function currentElapsed() {
+    return clockElapsed + (performance.now() / 1000 - clockAt) * clockRate;
+  }
+
+  store.onState((state, payload = state) => {
     if (payload.elapsed_seconds !== undefined) {
-      startedAt = performance.now() / 1000 - Number(payload.elapsed_seconds || 0);
+      clockElapsed = Number(payload.elapsed_seconds || 0);
+      clockAt = performance.now() / 1000;
+      clockRate = Number(payload.playback_rate) || 1;
     }
-    if (!payload.lyrics || !payload.lyrics.text) {
-      lines = [];
-      isSynced = false;
-      activeIndex = -1;
-      isManualScrolling = false;
-      currentScrollOffset = 0;
-      lyricsEndedAt = null;
-      container.classList.remove("lyrics-lines--plain");
-      container.innerHTML = '<p class="lyrics-placeholder">No lyrics available.</p>';
-      container.style.setProperty("--lyrics-offset", "0px");
+    const lyrics = state.lyrics;
+    const key = lyrics && lyrics.text ? `${lyrics.synced ? "s" : "p"}:${lyrics.text}` : "";
+    // Most state events only move the clock; rebuilding the lines would
+    // flash the view back to the first verse.
+    if (key === renderedKey) {
       return;
     }
-    isSynced = Boolean(payload.lyrics.synced);
-    lines = isSynced
-      ? parseLrc(payload.lyrics.text)
-      : payload.lyrics.text.split(/\r?\n/).map((text) => ({ time: 0, text }));
+    renderedKey = key;
     activeIndex = -1;
     isManualScrolling = false;
     currentScrollOffset = 0;
-    lyricsEndedAt = null;
+    lyricsEnded = false;
     container.style.setProperty("--lyrics-offset", "0px");
+    if (!key) {
+      lines = [];
+      isSynced = false;
+      container.classList.remove("lyrics-lines--plain");
+      container.innerHTML = '<p class="lyrics-placeholder">No lyrics available.</p>';
+      return;
+    }
+    isSynced = Boolean(lyrics.synced);
+    lines = isSynced
+      ? parseLrc(lyrics.text)
+      : lyrics.text.split(/\r?\n/).map((text) => ({ time: 0, text }));
     container.classList.toggle("lyrics-lines--plain", !isSynced);
     renderLines();
-    if (isSynced) {
-      updateActiveLine(0, true);
+    if (isSynced && lines.length) {
+      updateActiveLine(findActiveIndex(currentElapsed()), true);
     }
   });
 
   let activeElement = null;
   let nearElements = [];
-  let lyricsEndedAt = null;
   const LYRICS_END_GRACE_SECONDS = 3;
 
   function renderLines() {
@@ -203,21 +217,20 @@ export function setupLyricsSync(store) {
 
   function tick() {
     if (isSynced && lines.length) {
-      const elapsed = performance.now() / 1000 - startedAt;
-      const lastLyricTime = lines[lines.length - 1].time;
-      updateActiveLine(findActiveIndex(elapsed));
-
-      // Check if we've passed the last lyric timestamp + grace period (3 seconds)
-      if (elapsed >= lastLyricTime + LYRICS_END_GRACE_SECONDS) {
-        lines = [];
-        isSynced = false;
+      const elapsed = currentElapsed();
+      const pastEnd = elapsed >= lines[lines.length - 1].time + LYRICS_END_GRACE_SECONDS;
+      if (pastEnd && !lyricsEnded) {
+        lyricsEnded = true;
         activeIndex = -1;
-        lyricsEndedAt = null;
-        container.classList.remove("lyrics-lines--plain");
         container.innerHTML = '<p class="lyrics-placeholder">Waiting for next track…</p>';
         container.style.setProperty("--lyrics-offset", "0px");
-      } else {
-        lyricsEndedAt = null;
+      } else if (!pastEnd && lyricsEnded) {
+        // The clock was corrected back into the song.
+        lyricsEnded = false;
+        renderLines();
+        updateActiveLine(findActiveIndex(elapsed), true);
+      } else if (!lyricsEnded) {
+        updateActiveLine(findActiveIndex(elapsed));
       }
     }
     requestAnimationFrame(tick);

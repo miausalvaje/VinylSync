@@ -360,6 +360,8 @@ class ApplicationRuntime:
             # PlayerState.elapsed_seconds(), which excludes the manual lyric offset.
             "elapsed_seconds": track.lyric_elapsed_seconds() if track else 0.0,
             "playback_elapsed_seconds": track.elapsed_seconds() if track else 0.0,
+            # Track seconds per wall-clock second, for extrapolating between events.
+            "playback_rate": track.playback_rate if track else 1.0,
             "source": {
                 "source_id": self.capture.source_info.source_id,
                 "name": self.capture.source_info.name,
@@ -385,11 +387,13 @@ class ApplicationRuntime:
         if not self.spectrum_clients:
             return
         metrics = self._last_metrics
+        # Sent ~40 times a second: three decimals are plenty for drawing bars
+        # and keep each message a third of the size.
         payload = {
-            "bands": metrics.bands,
-            "rms": metrics.rms,
-            "peak": metrics.peak,
-            "dbfs": metrics.dbfs,
+            "bands": [round(value, 3) for value in metrics.bands],
+            "rms": round(metrics.rms, 4),
+            "peak": round(metrics.peak, 4),
+            "dbfs": round(metrics.dbfs, 1),
         }
         for client in tuple(self.spectrum_clients):
             try:
@@ -408,7 +412,9 @@ class ApplicationRuntime:
         )
         if same_track:
             if detected_position is not None:
-                self.player.adjust_offset_if_needed(detected_position)
+                self.player.adjust_offset_if_needed(
+                    detected_position, playback_rate=track.playback_rate
+                )
             self.locked = locked
             return
         self.player.set_track(
@@ -419,6 +425,7 @@ class ApplicationRuntime:
             track.cover_url,
             0.0 if detected_position is None else detected_position,
             self.settings.manual_offset_seconds,
+            track.playback_rate,
         )
         self.locked = locked
 
@@ -517,7 +524,10 @@ class ApplicationRuntime:
                 timeout=self.recognition_timeout_seconds * provider_count,
             )
             if track is not None and track.offset_seconds is not None:
-                track.offset_seconds += time.monotonic() - snapshot.sample_start_monotonic
+                # The provider reports the position at the sample start; carry
+                # it to now at the measured turntable speed.
+                elapsed = time.monotonic() - snapshot.sample_start_monotonic
+                track.offset_seconds += elapsed * (track.playback_rate or 1.0)
             if track is None:
                 logger.info("Recognition returned no track.")
                 actions = sup.handle_recognition_no_track(background=background)

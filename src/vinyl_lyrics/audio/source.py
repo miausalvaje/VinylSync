@@ -25,6 +25,18 @@ warnings.filterwarnings(
 
 AudioCallback = Callable[[np.ndarray], None]
 
+# Browser frames come over TCP: they arrive late or in bursts but are never
+# lost in transit, so the sample count is the stream clock and arrival times
+# only anchor it. A frame cannot arrive before it was recorded, so an "early"
+# frame means the anchor is too late and moves it back at once, and a slow
+# creep forward follows a sound card that runs a little slow. Frames that keep
+# arriving late at the normal pace mean the browser really stopped sending
+# (a suspended tab): only then does the anchor jump forward. A late frame
+# followed by its backlog is just a stall and leaves the clock alone.
+_GAP_SECONDS = 0.25
+_GAP_CONFIRM_SECONDS = 0.3
+_ANCHOR_CREEP = 0.002
+
 
 @dataclass(frozen=True, slots=True)
 class AudioSourceInfo:
@@ -172,6 +184,8 @@ class BrowserStreamSource(AudioSource):
         self._total_samples_delivered = 0
         self._last_received_monotonic: float | None = None
         self._last_log_monotonic: float | None = None
+        self._late_since: float | None = None
+        self._late_min = 0.0
 
     @property
     def active_client_id(self) -> str | None:
@@ -192,6 +206,7 @@ class BrowserStreamSource(AudioSource):
             self._total_samples_delivered = 0
             self._last_received_monotonic = None
             self._last_log_monotonic = None
+            self._late_since = None
 
     def reset_stream(self, client_id: str | None, client_sample_rate: int) -> None:
         """Reset the stream clock and configuration for a newly connected sender."""
@@ -202,6 +217,7 @@ class BrowserStreamSource(AudioSource):
             self._total_samples_delivered = 0
             self._last_received_monotonic = None
             self._last_log_monotonic = None
+            self._late_since = None
 
     def current_stream_monotonic(self, now: float | None = None) -> float:
         """Return the stream timestamp corresponding to the end of buffered samples."""
@@ -212,7 +228,7 @@ class BrowserStreamSource(AudioSource):
             return self._anchor_monotonic + (self._total_samples_delivered / self.sample_rate)
 
     def feed_pcm16_frame(self, data: bytes, now: float | None = None) -> None:
-        """Process, resample, gap-fill, and deliver a binary PCM Int16 mono frame."""
+        """Process, resample, timestamp, and deliver a binary PCM Int16 mono frame."""
         with self._lock:
             if not self._active or self._callback is None or not data:
                 return
@@ -245,32 +261,39 @@ class BrowserStreamSource(AudioSource):
                 samples = pcm
 
             if self._anchor_monotonic is None:
-                self._anchor_monotonic = t_now
+                # The first frame was recorded before it arrived.
+                self._anchor_monotonic = t_now - len(samples) / self.sample_rate
                 self._total_samples_delivered = 0
             else:
-                t_stream = self._anchor_monotonic + (
-                    self._total_samples_delivered / self.sample_rate
-                )
-                delta = t_now - t_stream
-                # Gap filling: if delayed or dropped frames create a gap > 250ms, fill with silence
-                if delta > 0.25:
-                    missing_samples = int(round(delta * self.sample_rate))
-                    if missing_samples > 0:
-                        zeros = np.zeros(missing_samples, dtype=np.float32)
-                        self._callback(zeros)
-                        self._total_samples_delivered += missing_samples
-
-                # Drift correction: gently adjust anchor for small, subtle hardware clock drift
-                t_stream = self._anchor_monotonic + (
-                    self._total_samples_delivered / self.sample_rate
-                )
-                drift = t_now - t_stream
-                if 0.005 < abs(drift) <= 0.20:
-                    self._anchor_monotonic += 0.005 * drift
+                self._update_anchor(t_now, len(samples))
 
             self._callback(samples)
             self._total_samples_delivered += len(samples)
             self._last_received_monotonic = t_now
+
+    def _update_anchor(self, t_now: float, frame_samples: int) -> None:
+        """Follow the earliest arrivals; see the module notes on browser frames."""
+        assert self._anchor_monotonic is not None
+        frame_end = self._anchor_monotonic + (
+            (self._total_samples_delivered + frame_samples) / self.sample_rate
+        )
+        lateness = t_now - frame_end
+        if lateness <= _GAP_SECONDS:
+            self._late_since = None
+            if lateness < 0.0:
+                self._anchor_monotonic += lateness
+            else:
+                self._anchor_monotonic += _ANCHOR_CREEP * lateness
+            return
+        if self._late_since is None:
+            self._late_since = t_now
+            self._late_min = lateness
+            return
+        self._late_min = min(self._late_min, lateness)
+        if t_now - self._late_since >= _GAP_CONFIRM_SECONDS:
+            logger.info("Browser audio resumed after a %.2fs gap", self._late_min)
+            self._anchor_monotonic += self._late_min
+            self._late_since = None
 
 
 def create_audio_source(

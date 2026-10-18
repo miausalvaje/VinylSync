@@ -130,13 +130,16 @@ class SpectrumAnalyzer:
         self._smoothed = np.zeros(band_count, dtype=np.float32)
         self._edges = np.geomspace(40.0, 16000.0, band_count + 1)
         self._fft_size = 2048
+        self._window = np.hanning(self._fft_size)
         frequencies = np.fft.rfftfreq(self._fft_size, 1.0 / self.sample_rate)
-        self._band_indices = [
-            np.flatnonzero(
-                (frequencies >= self._edges[index]) & (frequencies < self._edges[index + 1])
-            )
-            for index in range(self.band_count)
-        ]
+        # Each band is a contiguous run of FFT bins (low bands may have none),
+        # so all band maxima come from a single reduceat over the bin starts.
+        band_of_bin = np.searchsorted(self._edges, frequencies, side="right") - 1
+        starts = np.searchsorted(band_of_bin, np.arange(self.band_count), side="left")
+        ends = np.searchsorted(band_of_bin, np.arange(self.band_count), side="right")
+        self._filled_bands = np.flatnonzero(ends > starts)
+        self._band_starts = starts[self._filled_bands]
+        self._bins_end = int(ends[self._filled_bands[-1]]) if self._filled_bands.size else 0
 
     def analyze(self, samples: np.ndarray, gain_db: float = 0.0) -> AudioMetrics:
         """Analyze a short audio window for spectrum and level."""
@@ -151,13 +154,12 @@ class SpectrumAnalyzer:
         fft_samples = amplified[-self._fft_size :]
         if fft_samples.size < self._fft_size:
             fft_samples = np.pad(fft_samples, (self._fft_size - fft_samples.size, 0))
-        spectrum = np.abs(np.fft.rfft(fft_samples * np.hanning(self._fft_size)))
+        spectrum = np.abs(np.fft.rfft(fft_samples * self._window))
         values = np.zeros(self.band_count, dtype=np.float32)
-        for index, indices in enumerate(self._band_indices):
-            if indices.size:
-                band_power = float(np.max(spectrum[indices]))
-                band_db = 20.0 * math.log10(max(band_power / self._fft_size, 1e-6))
-                values[index] = np.clip((band_db + 80.0) / 80.0, 0.0, 1.0)
+        if self._filled_bands.size:
+            band_power = np.maximum.reduceat(spectrum[: self._bins_end], self._band_starts)
+            band_db = 20.0 * np.log10(np.maximum(band_power / self._fft_size, 1e-6))
+            values[self._filled_bands] = np.clip((band_db + 80.0) / 80.0, 0.0, 1.0)
         attack = values > self._smoothed
         self._smoothed = np.where(
             attack,
