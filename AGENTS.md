@@ -55,6 +55,8 @@ Static HTML/CSS/JS served by FastAPI. Key JS modules:
 - `visualizer.js` - Canvas-based audio visualization
 - `audio-capture.js` / `audio-worklet.js` - Browser audio capture via AudioWorklet
 - `lyrics-sync.js` - Synchronized lyrics display (rebuilds the lines only when the lyrics change; state events just move the clock)
+- `progress.js` - Read-only track progress bar (elapsed / duration), driven by `playback_elapsed_seconds`
+- `playback-clock.js` - Local copy of a server clock field, advancing at `playback_rate` between state events
 - `settings.js` - Settings panel logic
 - `manual-search.js` - Track correction search dialog
 - `fullscreen.js` - Fullscreen handling

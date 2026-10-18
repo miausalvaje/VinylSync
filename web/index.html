@@ -42,6 +42,13 @@
               <p id="track-artist" class="track-artist">Waiting for track</p>
               <h1 id="track-title">VinylSync</h1>
             </div>
+            <div id="track-progress" class="track-progress" role="progressbar" aria-label="Track position" aria-valuemin="0" hidden>
+              <div class="track-progress__bar"><span class="track-progress__fill"></span></div>
+              <div class="track-progress__times">
+                <span id="track-progress-elapsed">0:00</span>
+                <span id="track-progress-duration">--:--</span>
+              </div>
+            </div>
             <div class="track-actions">
               <span id="track-lock" hidden aria-label="Track locked">🔒</span>
               <button id="unlock-track" class="secondary-button" type="button" hidden>Unlock</button>
