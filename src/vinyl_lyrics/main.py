@@ -28,6 +28,7 @@ from vinyl_lyrics.config import load_config
 from vinyl_lyrics.lyrics.cache import LyricsCache
 from vinyl_lyrics.lyrics.lrclib import LRCLIBClient, LyricResult
 from vinyl_lyrics.lyrics.multi import MultiProviderLyricsClient
+from vinyl_lyrics.lyrics.parser import parse_lrc
 from vinyl_lyrics.paths import resolve_data_path
 from vinyl_lyrics.recognition import create_recognizer
 from vinyl_lyrics.recognition.base import Track
@@ -441,6 +442,15 @@ class ApplicationRuntime:
             and current_title.casefold() == track.title.casefold()
         )
 
+    def _set_lyric_lines(self, track: Track, lyrics: LyricResult) -> None:
+        """Give the playing track the line timing of its synced lyrics."""
+        if not lyrics.synced or not self._is_current_track(track):
+            return
+        if self.player.current_track is not None:
+            self.player.current_track.lyric_line_starts = tuple(
+                start for start, text in parse_lrc(lyrics.text) if text
+            )
+
     async def _load_lyrics(self, track: Track) -> None:
         cached = self.cache.get(track.artist, track.title, track.duration)
         if cached is not None and cached.synced:
@@ -448,6 +458,7 @@ class ApplicationRuntime:
                 self.player.current_track.duration = (
                     cached.duration or self.player.current_track.duration
                 )
+            self._set_lyric_lines(track, cached)
             return
         # A cached *plain* result stays in the cache as silent fallback, but
         # we still query the providers: a synced version may have appeared
@@ -469,6 +480,7 @@ class ApplicationRuntime:
                 self.player.current_track.duration = (
                     lyrics.duration or self.player.current_track.duration
                 )
+            self._set_lyric_lines(track, lyrics)
             try:
                 self.cache.save(lyrics, alias_artist=track.artist, alias_title=track.title)
             except TypeError:
@@ -621,17 +633,17 @@ class ApplicationRuntime:
         self._apply_track(track, locked=True)
         text = override.synced_lyrics or override.plain_lyrics
         if text:
-            self.cache.save(
-                LyricResult(
-                    text=text,
-                    synced=bool(override.synced_lyrics),
-                    title=track.title,
-                    artist=track.artist,
-                    album=track.album,
-                    duration=track.duration,
-                    cover_url=track.cover_url,
-                )
+            lyrics = LyricResult(
+                text=text,
+                synced=bool(override.synced_lyrics),
+                title=track.title,
+                artist=track.artist,
+                album=track.album,
+                duration=track.duration,
+                cover_url=track.cover_url,
             )
+            self._set_lyric_lines(track, lyrics)
+            self.cache.save(lyrics)
         self.status = "playing"
         await self.broadcast({"event": "track", **self.public_state()})
 

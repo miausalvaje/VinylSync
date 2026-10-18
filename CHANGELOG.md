@@ -31,6 +31,7 @@ and the project follows [Semantic Versioning](https://semver.org/).
 - Mid-song instrumental breaks or quiet passages no longer clear active lyrics or cause re-recognition from scratch; the playback clock advances during silence.
 - Post-boundary and startup recognitions bypass backoff timers and wait for clean audio instead of previous silence.
 - Periodic re-identification failures with an active track no longer drop the player to `listening` or `idle`.
+- A silence inside a gap of the synced lyrics (an ambient interlude, like the minute of near silence in twenty one pilots' "Paladin Strait") is no longer taken for a needle lift: `break_max_seconds` counts from the next sung line.
 
 ### TODO
 

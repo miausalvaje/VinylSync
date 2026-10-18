@@ -25,6 +25,7 @@ recognition:
   # Minimum silence duration to consider that a pause occurred (does not discard the track on its own).
   track_gap_seconds: 1.5
   # Maximum silence duration during a track before assuming playback has stopped.
+  # With synced lyrics it counts from the next sung line (quiet instrumental gaps are kept).
   break_max_seconds: 6
   # Margin before track end to treat a silence as a track boundary.
   end_margin_seconds: 10

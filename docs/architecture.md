@@ -86,7 +86,7 @@ stateDiagram-v2
         ActivePlayback --> TrackBoundary: Silence detected (remaining <= end_margin)
     }
 
-    MidSongBreak --> idle: Silence >= break_max_seconds (needle lifted)
+    MidSongBreak --> idle: Silence >= break_max_seconds past the next synced line (needle lifted)
     MidSongBreak --> idle: Elapsed >= duration + end_margin (song ended)
     TrackBoundary --> idle: Silence >= idle_timeout_seconds
     TrackBoundary --> listening: Signal returns (discard track, identify next)

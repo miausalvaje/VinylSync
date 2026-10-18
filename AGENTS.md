@@ -141,6 +141,7 @@ Each authenticated user receives an isolated `ApplicationRuntime`, including its
 - `break`: Mid-song silence (remaining > `end_margin_seconds`)
 - `boundary`: End-of-track silence (remaining ≤ `end_margin_seconds`)
 - `idle`: Silence ≥ `break_max_seconds` (needle lift) or ≥ `idle_timeout_seconds` after boundary
+- A `break` that falls in a gap of the synced lyrics is excused until the next sung line is due: `break_max_seconds` counts from there (`TrackState.lyric_line_starts`, set by `ApplicationRuntime._load_lyrics`).
 
 ## Testing
 

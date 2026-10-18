@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import statistics
 import time
 from dataclasses import dataclass, field
@@ -56,6 +57,8 @@ class TrackState:
     playback_rate: float = 1.0
     fixes: list[PositionFix] = field(default_factory=list)
     pending_fix: PositionFix | None = None
+    # Start times of the sung lines of the synced lyrics, on the lyric timeline.
+    lyric_line_starts: tuple[float, ...] = ()
 
     @property
     def started_at(self) -> float:
@@ -77,6 +80,13 @@ class TrackState:
     def lyric_elapsed_seconds(self, now: float | None = None) -> float:
         """Return elapsed time for lyric synchronization, including the user offset."""
         return max(0.0, self.elapsed_seconds(now) + self.manual_offset_seconds)
+
+    def next_lyric_line(self, after: float) -> float | None:
+        """Return the start of the first sung line after lyric position ``after``."""
+        index = bisect.bisect_right(self.lyric_line_starts, after)
+        if index >= len(self.lyric_line_starts):
+            return None
+        return self.lyric_line_starts[index]
 
     def sync_offset(self, reference_now: float | None = None) -> None:
         """Adjust the start timestamp so that the current offset is preserved."""
@@ -155,6 +165,12 @@ class PlayerState:
         if self.current_track is None:
             return 0.0
         return self.current_track.lyric_elapsed_seconds(now)
+
+    def next_lyric_line_at(self, now: float | None = None) -> float | None:
+        """Return the lyric position of the next sung line after the one at ``now``."""
+        if self.current_track is None:
+            return None
+        return self.current_track.next_lyric_line(self.current_track.lyric_elapsed_seconds(now))
 
     def remaining_seconds(self, now: float | None = None) -> float | None:
         """Return the remaining playback time for the current track."""
