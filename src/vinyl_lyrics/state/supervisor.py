@@ -76,6 +76,10 @@ class PlaybackSupervisor:
         self.track_gap_pending = False
         self.silence_started_monotonic: float | None = None
         self.silence_type: str | None = None
+        # Lyric position of the first sung line after the silence began. A
+        # quiet instrumental passage (an ambient interlude) is not a needle
+        # lift as long as the lyrics have nothing to show either.
+        self.break_lyrics_resume_at: float | None = None
         # Start of the fresh audio a confirmation sample must be cut from. A
         # confirmation needs audio the doubtful match did not hear: re-sending
         # an overlapping window just repeats the same answer.
@@ -136,6 +140,9 @@ class PlaybackSupervisor:
         # 1. On silence transition: became_silent
         if silence.became_silent:
             self.silence_started_monotonic = now - silence.silent_for
+            self.break_lyrics_resume_at = self.player.next_lyric_line_at(
+                self.silence_started_monotonic
+            )
             if self.player.current_track is not None:
                 remaining = self.player.remaining_seconds(now)
                 duration = self.player.current_track.duration
@@ -157,7 +164,10 @@ class PlaybackSupervisor:
         if not silence.active:
             if self.player.current_track is not None and self.status == "playing":
                 if self.silence_type == "break":
-                    if silence.silent_for >= self.break_max_seconds:
+                    if (
+                        silence.silent_for >= self.break_max_seconds
+                        and not self._lyrics_expect_silence(now)
+                    ):
                         logger.info(
                             "Silence exceeded break_max_seconds (%.1fs). "
                             "Reclassifying as needle lift.",
@@ -281,6 +291,17 @@ class PlaybackSupervisor:
                     actions.append(StartRecognition(background=True))
 
         return actions
+
+    def _lyrics_expect_silence(self, now: float) -> bool:
+        """Whether the current silence falls in a gap of the synced lyrics.
+
+        The silence is excused until ``break_max_seconds`` after the next sung
+        line was due: a record still silent by then has been lifted.
+        """
+        if self.break_lyrics_resume_at is None:
+            return False
+        deadline = self.break_lyrics_resume_at + self.break_max_seconds
+        return self.player.lyric_elapsed_seconds(now) < deadline
 
     def handle_recognition_start(self, background: bool = False) -> list[SupervisorAction]:
         """Record recognition start and emit identifying event when appropriate."""

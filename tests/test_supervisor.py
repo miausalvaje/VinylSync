@@ -174,6 +174,105 @@ def test_silence_exceeding_break_max_seconds_is_needle_lift() -> None:
     assert player.current_track is None
 
 
+def test_silence_in_a_lyric_gap_keeps_the_track() -> None:
+    """3b. A quiet instrumental passage lasts as long as the lyrics have no line to show."""
+    clock = FakeClock(1000.0)
+    player = PlayerState()
+    # Paladin Strait: an ambient interlude between 4:21 and the next line at 5:39.
+    player.set_track("Paladin Strait", "twenty one pilots", duration=389.0)
+    assert player.current_track is not None
+    player.current_track.lyric_line_starts = (246.74, 254.0, 339.77, 364.07)
+    player.current_track.started_at_monotonic = clock() - 265.0
+
+    supervisor = PlaybackSupervisor(
+        player=player,
+        clock=clock,
+        break_max_seconds=6.0,
+        status="playing",
+    )
+
+    silence = SilenceState(active=False, became_active=False, became_silent=True, silent_for=1.5)
+    supervisor.handle_silence(silence, recognition_busy=False)
+    assert supervisor.silence_type == "break"
+    assert supervisor.break_lyrics_resume_at == 339.77
+
+    # Almost a minute of near silence: still the same song.
+    clock.advance(55.0)
+    silence = SilenceState(active=False, became_active=False, became_silent=False, silent_for=56.5)
+    assert supervisor.handle_silence(silence, recognition_busy=False) == []
+    assert supervisor.status == "playing"
+    assert player.current_track is not None
+
+    # The music returns: verified in the background like any other break.
+    silence = SilenceState(active=True, became_active=True, became_silent=False, silent_for=0.0)
+    actions = supervisor.handle_silence(silence, recognition_busy=False)
+    assert len(actions) == 1
+    assert isinstance(actions[0], StartRecognition)
+    assert actions[0].cancel_current is True
+    assert player.current_track is not None
+
+
+def test_silence_past_the_next_lyric_line_is_needle_lift() -> None:
+    """3c. A record still silent break_max_seconds after the next line was due was lifted."""
+    clock = FakeClock(1000.0)
+    player = PlayerState()
+    player.set_track("Song A", "Artist A", duration=200.0)
+    assert player.current_track is not None
+    player.current_track.lyric_line_starts = (40.0, 80.0)
+    player.current_track.started_at_monotonic = clock() - 50.0
+
+    supervisor = PlaybackSupervisor(
+        player=player,
+        clock=clock,
+        break_max_seconds=6.0,
+        status="playing",
+    )
+
+    silence = SilenceState(active=False, became_active=False, became_silent=True, silent_for=1.0)
+    supervisor.handle_silence(silence, recognition_busy=False)
+
+    # Position 84.5 s: the line at 80 s is due, but the grace has not run out.
+    clock.advance(35.5)
+    silence = SilenceState(active=False, became_active=False, became_silent=False, silent_for=36.5)
+    assert supervisor.handle_silence(silence, recognition_busy=False) == []
+    assert player.current_track is not None
+
+    # Position 86.5 s: silent for break_max_seconds past the line.
+    clock.advance(2.0)
+    silence = SilenceState(active=False, became_active=False, became_silent=False, silent_for=38.5)
+    actions = supervisor.handle_silence(silence, recognition_busy=False)
+    assert actions == [BroadcastEvent("idle")]
+    assert supervisor.status == "idle"
+    assert player.current_track is None
+
+
+def test_silence_after_the_last_lyric_line_uses_break_max() -> None:
+    """3d. With no line left to sing, break_max_seconds alone decides."""
+    clock = FakeClock(1000.0)
+    player = PlayerState()
+    player.set_track("Song A", "Artist A", duration=200.0)
+    assert player.current_track is not None
+    player.current_track.lyric_line_starts = (10.0, 20.0)
+    player.current_track.started_at_monotonic = clock() - 50.0
+
+    supervisor = PlaybackSupervisor(
+        player=player,
+        clock=clock,
+        break_max_seconds=6.0,
+        status="playing",
+    )
+
+    silence = SilenceState(active=False, became_active=False, became_silent=True, silent_for=1.0)
+    supervisor.handle_silence(silence, recognition_busy=False)
+    assert supervisor.break_lyrics_resume_at is None
+
+    clock.advance(5.5)
+    silence = SilenceState(active=False, became_active=False, became_silent=False, silent_for=6.5)
+    actions = supervisor.handle_silence(silence, recognition_busy=False)
+    assert actions == [BroadcastEvent("idle")]
+    assert player.current_track is None
+
+
 def test_unknown_duration_treated_as_break() -> None:
     """4. Unknown duration is treated as break until break_max_seconds."""
     clock = FakeClock(1000.0)
