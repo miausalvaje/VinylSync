@@ -1,3 +1,5 @@
+import { createPlaybackClock } from "./playback-clock.js";
+
 export function setupLyricsSync(store) {
   const container = document.querySelector("#lyrics-lines");
   const column = container ? container.parentElement : null;
@@ -7,24 +9,16 @@ export function setupLyricsSync(store) {
   let manualScrollTimeout = null;
   let isManualScrolling = false;
   let currentScrollOffset = 0;
-  // Lyric clock: position at clockAt (performance.now() seconds), advancing at
-  // the turntable speed measured by the server.
-  let clockElapsed = 0;
-  let clockAt = performance.now() / 1000;
-  let clockRate = 1;
+  const clock = createPlaybackClock("elapsed_seconds");
   let renderedKey = null;
   let lyricsEnded = false;
 
   function currentElapsed() {
-    return clockElapsed + (performance.now() / 1000 - clockAt) * clockRate;
+    return clock.now();
   }
 
   store.onState((state, payload = state) => {
-    if (payload.elapsed_seconds !== undefined) {
-      clockElapsed = Number(payload.elapsed_seconds || 0);
-      clockAt = performance.now() / 1000;
-      clockRate = Number(payload.playback_rate) || 1;
-    }
+    clock.update(payload);
     const lyrics = state.lyrics;
     const key = lyrics && lyrics.text ? `${lyrics.synced ? "s" : "p"}:${lyrics.text}` : "";
     // Most state events only move the clock; rebuilding the lines would
