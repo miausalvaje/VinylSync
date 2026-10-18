@@ -1,6 +1,7 @@
 import { stateStore, fetchWithAuth, getAuthToken, setAuthToken } from "./state.js";
 import { startVisualizer } from "./visualizer.js";
 import { setupLyricsSync } from "./lyrics-sync.js";
+import { setupTrackProgress } from "./progress.js";
 import { setupBackground } from "./background.js";
 import { setupFullscreen } from "./fullscreen.js";
 import { setupSettings } from "./settings.js";
@@ -171,6 +172,7 @@ stateStore.onState((payload) => {
 
 startVisualizer(stateStore);
 setupLyricsSync(stateStore);
+setupTrackProgress(stateStore);
 setupBackground(stateStore);
 setupFullscreen();
 setupSettings(stateStore);

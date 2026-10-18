@@ -45,6 +45,46 @@
   word-break: break-word;
 }
 
+.track-progress {
+  width: min(32vw, 380px);
+  margin: 0 0 1.25rem;
+}
+
+.track-progress[hidden] {
+  display: none;
+}
+
+.track-progress__bar {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+
+.track-progress__fill {
+  display: block;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.85);
+  transform: scaleX(0);
+  transform-origin: left center;
+  will-change: transform;
+}
+
+/* Without a duration an empty bar would read as stuck at 0: show the time only. */
+.track-progress--unknown .track-progress__bar,
+.track-progress--unknown #track-progress-duration {
+  display: none;
+}
+
+.track-progress__times {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.45rem;
+  color: #c1c3cc;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .lyrics-column {
   position: relative;
   height: 74vh;
@@ -174,6 +214,15 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .track-progress {
+    grid-column: 1 / -1;
+    width: auto;
+    margin: 0.75rem 0 0;
+  }
+  .track-progress__times {
+    margin-top: 0.3rem;
+    font-size: 0.75rem;
   }
   .track-actions {
     grid-column: 1 / -1;
