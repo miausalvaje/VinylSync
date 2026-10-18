@@ -93,7 +93,9 @@ class StateStore {
       try {
         const payload = JSON.parse(event.data);
         this.state = { ...this.state, ...payload };
-        this.listeners.forEach((listener) => listener(this.state));
+        // Listeners also get the raw message: partial events (capturer, error)
+        // carry no clock, and the merged state still holds an old elapsed time.
+        this.listeners.forEach((listener) => listener(this.state, payload));
       } catch {
         // Ignore non-JSON frames and keep the socket alive.
       }
