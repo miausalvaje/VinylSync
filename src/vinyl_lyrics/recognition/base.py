@@ -17,6 +17,9 @@ class Track:
     duration: float | None = None
     cover_url: str | None = None
     offset_seconds: float | None = None
+    # Track seconds advanced per second of capture (turntable speed relative to
+    # the reference recording), when the provider measures it.
+    playback_rate: float | None = None
 
 
 @runtime_checkable
