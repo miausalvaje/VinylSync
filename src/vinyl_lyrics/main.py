@@ -387,11 +387,13 @@ class ApplicationRuntime:
         if not self.spectrum_clients:
             return
         metrics = self._last_metrics
+        # Sent ~40 times a second: three decimals are plenty for drawing bars
+        # and keep each message a third of the size.
         payload = {
-            "bands": metrics.bands,
-            "rms": metrics.rms,
-            "peak": metrics.peak,
-            "dbfs": metrics.dbfs,
+            "bands": [round(value, 3) for value in metrics.bands],
+            "rms": round(metrics.rms, 4),
+            "peak": round(metrics.peak, 4),
+            "dbfs": round(metrics.dbfs, 1),
         }
         for client in tuple(self.spectrum_clients):
             try:
