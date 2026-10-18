@@ -29,15 +29,15 @@ Audio Ingestion → ContinuousAudioCapture → SilenceDetector + SpectrumAnalyze
 | `audio/source.py` | Audio source abstraction (local devices, browser stream) |
 | `audio/devices.py` | Device enumeration and resolution |
 | `recognition/base.py` | Provider interface and `Track` dataclass |
-| `recognition/shazam.py` | ShazamIO integration |
-| `recognition/acrcloud.py` | ACRCloud provider (stub) |
+| `recognition/shazam.py` | ShazamIO integration; reports the position at the sample start and `timeskew` as `playback_rate` |
+| `recognition/acrcloud.py` | ACRCloud provider (default fallback after Shazam); Deezer cover lookup by album ID |
 | `recognition/audd.py` | AudD provider (stub) |
 | `lyrics/cache.py` | SQLite lyrics cache |
 | `lyrics/lrclib.py` | LRCLIB API client |
 | `lyrics/parser.py` | LRC format parsing |
 | `lyrics/multi.py` | Multi-provider lyrics fallback |
-| `artwork/resolver.py` | Cover art resolution (iTunes, Cover Art Archive) |
-| `state/player.py` | Track state, elapsed time, re-identification logic |
+| `artwork/resolver.py` | Placeholder module (covers come from Shazam, or Deezer for ACRCloud matches) |
+| `state/player.py` | Track clock (position + playback rate), outlier-tolerant position fixes, re-identification timing |
 | `state/supervisor.py` | `PlaybackSupervisor` - state machine for playback transitions |
 | `settings.py` | User settings persistence (JSON) |
 | `config.py` | YAML configuration loading |
@@ -54,7 +54,7 @@ Static HTML/CSS/JS served by FastAPI. Key JS modules:
 - `app.js` - Main application, WebSocket connections, state management
 - `visualizer.js` - Canvas-based audio visualization
 - `audio-capture.js` / `audio-worklet.js` - Browser audio capture via AudioWorklet
-- `lyrics-sync.js` - Synchronized lyrics display
+- `lyrics-sync.js` - Synchronized lyrics display (rebuilds the lines only when the lyrics change; state events just move the clock)
 - `settings.js` - Settings panel logic
 - `manual-search.js` - Track correction search dialog
 - `fullscreen.js` - Fullscreen handling
@@ -127,8 +127,15 @@ Each authenticated user receives an isolated `ApplicationRuntime`, including its
 - Periodic re-identification every `interval_seconds` (default 45s) when `playing` and not `locked`
 - Minimum sample duration (`min_sample_seconds`, default 5s) before recognition
 - Two-sample debouncing for track changes during playback
+- Confirmation samples (`PlaybackSupervisor.confirmation_since`) are cut from audio recorded *after* the doubtful match: a new track's position, a position jump and a track-change candidate are each checked this way. A failed confirmation is retried once the backoff ends.
 
-### 5. Silence Classification
+### 5. Lyric Clock
+- shazamio fingerprints only the centred 10 s of a longer sample and Shazam reports the position at the start of that slice; `ShazamRecognizer` moves it back to the sample start (12 s window: 1 s). Shazam's `timeskew` is the turntable speed ratio (+0.005 = 0.5 % fast), exposed as `Track.playback_rate`.
+- `TrackState` runs at `playback_rate` (median of the reported rates, or estimated from positions when the provider gives none). The state payload sends `playback_rate` so the frontend extrapolates at the same speed.
+- `PlayerState.adjust_offset_if_needed`: differences under 0.05 s are noise; up to the tolerance (0.3 s + 0.5 % of the time since the last fix) they are applied (at once up to 0.15 s, halfway above); larger ones are held until a fresh sample confirms them. About one Shazam match in ten lands a beat or two off, so a lone disagreeing match never moves the clock.
+- Browser streams: the sample count is the clock. `BrowserStreamSource` anchors it to the earliest frame arrivals; a network stall followed by a backlog changes nothing, only sustained lateness (a suspended tab) is treated as a gap.
+
+### 6. Silence Classification
 - `break`: Mid-song silence (remaining > `end_margin_seconds`)
 - `boundary`: End-of-track silence (remaining ≤ `end_margin_seconds`)
 - `idle`: Silence ≥ `break_max_seconds` (needle lift) or ≥ `idle_timeout_seconds` after boundary
@@ -180,7 +187,7 @@ Edit files in `web/js/` and `web/css/`. No build step - served directly.
 
 ## Performance Notes
 
-- Spectrum loop runs at ~40 FPS only when clients connected (`spectrum_clients` set)
+- Spectrum loop runs at ~40 FPS only when clients connected (`spectrum_clients` set); band maxima use one `np.maximum.reduceat` and the payload is rounded to 3 decimals
 - Control loop sleeps 100ms when idle, processes 250ms audio windows
 - Recognition uses 12-second windows from circular buffer by default (configurable)
 - Browser audio resampled in-memory via NumPy to 44.1 kHz
@@ -199,11 +206,11 @@ Edit files in `web/js/` and `web/css/`. No build step - served directly.
 - Python: Type hints required, `slots=True` dataclasses, Google-style docstrings
 - Ruff: line-length 100, double quotes, target py311
 - MyPy: strict mode, disallow untyped defs
-- Tests: async with `pytest-asyncio`, fixtures in `conftest.py`
+- Tests: async with `pytest-asyncio`, fixtures in `conftest.py` (an autouse fixture keeps tests out of the real settings and data directories)
 - Commits: Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, etc.)
 
 ## Known Limitations / TODO (from CHANGELOG)
 
 - Complete polished frontend
-- Complete ACRCloud and AudD provider integrations
-- Frontend visualizer and lyrics sync need refinement
+- Complete the AudD provider integration
+- Capture latency of the browser (input device + network) is not measured; `manual_offset_seconds` covers it
