@@ -1,6 +1,9 @@
 import json
 import time
+from collections.abc import Iterator
 from concurrent.futures import CancelledError
+from contextlib import contextmanager
+from typing import Any
 
 import numpy as np
 import pytest
@@ -12,6 +15,27 @@ from vinyl_lyrics.audio.capture import ContinuousAudioCapture
 from vinyl_lyrics.audio.source import AudioSourceInfo, BrowserStreamSource
 from vinyl_lyrics.main import create_app
 from vinyl_lyrics.server.ws import AudioTokenBucket
+
+
+@contextmanager
+def _audio_ws(client: TestClient, **kwargs: Any) -> Iterator[Any]:
+    """Open ``/ws/audio``, ignoring a cancellation raised while closing it.
+
+    On Windows, Starlette's test client can surface the server task's
+    cancellation from the closing ``__exit__``, after the block has run.
+    """
+    connection = client.websocket_connect("/ws/audio", **kwargs)
+    ws = connection.__enter__()
+    try:
+        yield ws
+    except BaseException as error:
+        if not connection.__exit__(type(error), error, error.__traceback__):
+            raise
+    else:
+        try:
+            connection.__exit__(None, None, None)
+        except CancelledError:
+            pass
 
 
 def test_audio_token_bucket_allows_legitimate_burst() -> None:
@@ -347,7 +371,7 @@ def test_ws_audio_authentication(monkeypatch: pytest.MonkeyPatch) -> None:
             ws.receive_text()
 
     # 2. Connect with subprotocol -> succeeds
-    with client.websocket_connect("/ws/audio", subprotocols=["vinylsync-auth.ws-secret-123"]) as ws:
+    with _audio_ws(client, subprotocols=["vinylsync-auth.ws-secret-123"]) as ws:
         assert getattr(ws, "accepted_subprotocol", None) == "vinylsync-auth.ws-secret-123"
         ws.send_text(
             json.dumps(
@@ -363,7 +387,7 @@ def test_ws_audio_authentication(monkeypatch: pytest.MonkeyPatch) -> None:
         assert json.loads(ws.receive_text()).get("type") == "hello_ok"
 
     # 3. Connect with first auth message -> succeeds
-    with client.websocket_connect("/ws/audio") as ws:
+    with _audio_ws(client) as ws:
         ws.send_text(json.dumps({"type": "auth", "token": "ws-secret-123"}))
         auth_resp = json.loads(ws.receive_text())
         assert auth_resp.get("type") == "auth_ok"
